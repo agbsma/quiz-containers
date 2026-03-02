@@ -320,6 +320,22 @@ io.on('connection', (socket) => {
   });
 });
 
+// ─── RESET ───────────────────────────────────────────────────────────────────
+
+async function resetGame() {
+  questionPool = await loadQuestions();
+  gameBoxes    = generateBoxes(questionPool);
+  players.forEach(p => { p.score = 0; });
+  focusedQuestionByPlayer.clear();
+  io.emit('game:reset', { boxes: gameBoxes.map(boxForClient), scores: scoreBoard() });
+  console.log('\n  [RESET] Juego reiniciado — cajas y puntuaciones reseteadas\n');
+}
+
+app.get('/admin/reset', async (req, res) => {
+  await resetGame();
+  res.json({ ok: true, boxes: gameBoxes.length });
+});
+
 // ─── ARRANQUE ────────────────────────────────────────────────────────────────
 
 (async () => {

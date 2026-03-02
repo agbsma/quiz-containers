@@ -1261,6 +1261,22 @@ socket.on('box:answered', (d) => {
   if (d.playerId === myId) setForca(0);
 });
 
+socket.on('game:reset', (d) => {
+  // Eliminar todas las cajas actuales
+  boxData.forEach((_, id) => removeBoxFromScene(id));
+  activeQuestion = null;
+  dialogOpen = false;
+  dialogOverlay.classList.remove('open');
+  setForca(0);
+  // Recrear todas las cajas
+  if (levelReady) d.boxes.forEach(createBoxMesh);
+  else pendingBoxes = d.boxes;
+  if (d.scores) updateScoreboard(d.scores);
+  myScore = d.scores?.find(s => s.id === myId)?.score ?? 0;
+  myScoreEl.textContent = myScore;
+  showMsg('El joc s\'ha reiniciat!', '#ffdd44');
+});
+
 socket.on('box:questionrespawn', (d) => {
   removeBoxFromScene(d.boxId);
   if (levelReady) {
