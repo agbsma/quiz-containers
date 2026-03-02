@@ -465,6 +465,40 @@ app.get('/admin/reset', async (req, res) => {
   res.json({ ok: true, boxes: gameBoxes.length });
 });
 
+// ─── ENDPOINTS LOGS ──────────────────────────────────────────────────────────
+
+// Llista tots els fitxers de log
+app.get('/admin/logs', (req, res) => {
+  try {
+    const files = fs.readdirSync(LOGS_DIR)
+      .filter(f => f.endsWith('.log') && f !== '.gitkeep')
+      .sort().reverse();
+    let html = '<html><head><meta charset="utf-8"><title>Logs</title>';
+    html += '<style>body{font-family:monospace;background:#111;color:#eee;padding:20px}';
+    html += 'a{color:#44ddff}h2{color:#ffdd44}</style></head><body>';
+    html += '<h2>Fitxers de log</h2>';
+    if (!files.length) { html += '<p>Cap fitxer de log encara.</p>'; }
+    else {
+      files.forEach(f => {
+        html += `<p><a href="/admin/logs/${encodeURIComponent(f)}">${f}</a></p>`;
+      });
+    }
+    html += '</body></html>';
+    res.send(html);
+  } catch (e) {
+    res.status(500).send('Error llegint logs: ' + e.message);
+  }
+});
+
+// Descarrega / mostra un fitxer de log concret
+app.get('/admin/logs/:filename', (req, res) => {
+  const filename = path.basename(req.params.filename);   // evita path traversal
+  const filepath = path.join(LOGS_DIR, filename);
+  if (!fs.existsSync(filepath)) return res.status(404).send('Fitxer no trobat');
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.sendFile(filepath);
+});
+
 // ─── ARRANQUE ────────────────────────────────────────────────────────────────
 
 (async () => {
