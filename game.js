@@ -832,8 +832,8 @@ function createQuestionBox(data, x, floorY, z) {
     questionGlowLight: null,
     questionGlowHalo: null,
     lidNode,
-    lidOpenX: lidNode ? lidNode.rotation.x : null,
-    lidClosedX: lidNode ? (lidNode.rotation.x + QUESTION_LID_OPEN_RAD) : null,
+    lidOpenX: lidNode ? (lidNode.rotation.x + QUESTION_LID_OPEN_RAD) : null,
+    lidClosedX: lidNode ? lidNode.rotation.x : null,
   };
   boxData.set(data.id, entry);
   if (lidNode) lidNode.rotation.x = entry.lidClosedX;
