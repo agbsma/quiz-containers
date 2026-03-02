@@ -3,6 +3,7 @@ const http     = require('http');
 const { Server } = require('socket.io');
 const path     = require('path');
 const os       = require('os');
+const fs       = require('fs');
 
 const app    = express();
 const server = http.createServer(app);
@@ -23,13 +24,16 @@ app.use(express.static(path.join(__dirname)));
 
 // ─── CONFIGURACIÓN ───────────────────────────────────────────────────────────
 
-// URL del Google Sheet publicado como CSV.
-// En Google Sheets: Archivo → Compartir → Publicar en la web → Hoja1 → CSV → Publicar
-// Pega aquí la URL que aparece:
 const QUESTIONS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT7IiShLIDNSMcbHOcvvOg4jfGAXUoNfp9n_lXjBG6aVNKfpBY1mKh9hwlXq1Pk5DgGXL9MyvrBQEFf/pub?gid=0&single=true&output=csv';
 
 const RESPAWN_DELAY_MS = 15000;   // 15 segundos para que reaparezca una caja rota
-const NUM_BREAKABLE    = 18;
+const NUM_BREAKABLE    = 36;      // doble de cajas verdes
+const PTS_CORRECT      = 10;
+const PTS_WRONG        = -5;
+
+// Directorio de logs (en el mismo directorio del servidor)
+const LOGS_DIR = path.join(__dirname, 'logs');
+if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR);
 
 // Límites del nivel (del navmesh)
 const BOUNDS = { minX: 3, maxX: 43, minZ: -7, maxZ: 37 };
@@ -78,7 +82,7 @@ function parseCSV(csv) {
     const c = parseCSVLine(line);
     if (c.length < 6) continue;
     const idx = parseInt(c[5], 10) - 1;   // 0-based
-    if (isNaN(idx) || idx < 0 || idx > 3) continue;  // salta cabecera y filas inválidas
+    if (isNaN(idx) || idx < 0 || idx > 3) continue;
     if (!c[0] || !c[1]) continue;
     questions.push({ question: c[0], answers: [c[1], c[2], c[3], c[4]], correct: idx, pts: 10 });
   }
@@ -161,8 +165,70 @@ const players    = new Map();
 let colorIdx     = 0;
 const focusedQuestionByPlayer = new Map();
 
+// ─── SESIÓN / LOGS ───────────────────────────────────────────────────────────
+
+let sessionActive    = false;
+let sessionStartTime = null;
+let sessionLogLines  = [];   // líneas del log de partida
+
+function fmtDate(d) {
+  return d.toLocaleString('ca-ES', { timeZone: 'Europe/Madrid',
+    year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+
+function sessionTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+}
+
+function logAnswer(playerName, question, answerGiven, correct) {
+  if (!sessionActive) return;
+  const ts   = fmtDate(new Date());
+  const ok   = correct ? 'OK' : 'KO';
+  const line = `[${ts}] ${playerName} | ${ok} | P: "${question}" | R: "${answerGiven}"`;
+  sessionLogLines.push(line);
+  console.log('  [LOG]', line);
+}
+
+function writeSessionLog() {
+  const ts   = sessionTimestamp();
+  const file = path.join(LOGS_DIR, `partida_${ts}.log`);
+  const content = sessionLogLines.join('\n') + '\n';
+  try { fs.writeFileSync(file, content, 'utf8'); console.log(`  [LOG] partida escrita → ${file}`); }
+  catch (e) { console.error('  [LOG] Error escribiendo partida:', e.message); }
+}
+
+function writeResultsLog(winnerName, winnerScore) {
+  const ts   = sessionTimestamp();
+  const file = path.join(LOGS_DIR, `resultats_${ts}.log`);
+  const now  = fmtDate(new Date());
+
+  const sorted = Array.from(players.values())
+    .sort((a, b) => b.score - a.score);
+
+  let content = `Data/Hora: ${now}\n`;
+  content    += `Guanyador: ${winnerName} (${winnerScore} punts)\n`;
+  content    += `${'─'.repeat(60)}\n`;
+  content    += `${'Jugador'.padEnd(22)} ${'Punts'.padStart(6)}  ${'OK'.padStart(4)}  ${'KO'.padStart(4)}\n`;
+  content    += `${'─'.repeat(60)}\n`;
+  for (const p of sorted) {
+    content += `${(p.name || p.id.slice(0,6)).padEnd(22)} ${String(p.score).padStart(6)}  ${String(p.correctAnswers||0).padStart(4)}  ${String(p.wrongAnswers||0).padStart(4)}\n`;
+  }
+  content += `${'─'.repeat(60)}\n`;
+
+  try { fs.writeFileSync(file, content, 'utf8'); console.log(`  [LOG] resultats escrits → ${file}`); }
+  catch (e) { console.error('  [LOG] Error escribiendo resultats:', e.message); }
+}
+
+// ─── SCOREBOARD ──────────────────────────────────────────────────────────────
+
 function scoreBoard() {
-  return Array.from(players.values()).map(p => ({ id: p.id, color: p.color, name: p.name, score: p.score }));
+  return Array.from(players.values()).map(p => ({
+    id:    p.id,
+    color: p.color,
+    name:  p.name,
+    score: p.score,
+  }));
 }
 
 function getLocalIP() {
@@ -178,7 +244,10 @@ io.on('connection', (socket) => {
   const color = PLAYER_COLORS[colorIdx % PLAYER_COLORS.length];
   colorIdx++;
 
-  const player = { id: socket.id, color, name: '', position: { x: 2.14, y: 1.48, z: -1.36 }, rotation: 0, score: 0 };
+  const player = {
+    id: socket.id, color, name: '', position: { x: 2.14, y: 1.48, z: -1.36 },
+    rotation: 0, score: 0, correctAnswers: 0, wrongAnswers: 0,
+  };
   players.set(socket.id, player);
   console.log(`[+] Conectado ${socket.id.slice(0,6)}  (${players.size} jugadores)`);
 
@@ -257,14 +326,17 @@ io.on('connection', (socket) => {
     const p = players.get(socket.id);
     if (!p) return;
 
-    const correct = data.answerIndex === box.correct;
+    const correct     = data.answerIndex === box.correct;
+    const answerGiven = box.answers[data.answerIndex] ?? '?';
 
     if (correct) {
       focusedQuestionByPlayer.delete(socket.id);
       box.answered   = true;
       box.answeredBy = socket.id;
-      p.score += box.pts ?? 10;
-      console.log(`  [OK] #${data.boxId} por ${socket.id.slice(0,6)} (+${box.pts}pts)`);
+      p.score          += PTS_CORRECT;
+      p.correctAnswers += 1;
+      logAnswer(p.name || p.id.slice(0,6), box.question, answerGiven, true);
+      console.log(`  [OK] #${data.boxId} por ${socket.id.slice(0,6)} (+${PTS_CORRECT}pts)`);
       io.emit('box:answered', { boxId: data.boxId, playerId: socket.id, correct: true, scores: scoreBoard() });
 
       // Respawn de la caja de pregunta en nueva posición con nueva pregunta
@@ -290,7 +362,10 @@ io.on('connection', (socket) => {
         console.log(`  [q-respawn] #${data.boxId} → (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`);
       }, RESPAWN_DELAY_MS);
     } else {
-      console.log(`  [FAIL] #${data.boxId} por ${socket.id.slice(0,6)}`);
+      p.score        += PTS_WRONG;
+      p.wrongAnswers += 1;
+      logAnswer(p.name || p.id.slice(0,6), box.question, answerGiven, false);
+      console.log(`  [FAIL] #${data.boxId} por ${socket.id.slice(0,6)} (${PTS_WRONG}pts)`);
       // Guardar la respuesta correcta antes de sobreescribir el box
       const correctAnswer = box.answers[box.correct];
       // Asignar nueva pregunta al box
@@ -301,9 +376,61 @@ io.on('connection', (socket) => {
       box.pts      = newQ.pts ?? 10;
       // Notificar a TODOS (la caja tiene nueva pregunta, sin revelar cuál es correcta)
       io.emit('box:newquestion', { boxId: data.boxId, question: newQ.question, answers: newQ.answers });
-      // Decir al jugador que falló (con la respuesta correcta para mostrarla)
-      socket.emit('box:answered', { boxId: data.boxId, playerId: socket.id, correct: false, correctAnswer });
+      // Decir al jugador que falló + actualizar su puntuación
+      socket.emit('box:answered', { boxId: data.boxId, playerId: socket.id, correct: false, correctAnswer, scores: scoreBoard() });
     }
+  });
+
+  // ── Comandos admin ────────────────────────────────────────────────────────
+
+  // Ctrl+Alt+Shift+P → Pre-avís
+  socket.on('admin:prestart', () => {
+    console.log(`  [ADMIN] prestart per ${socket.id.slice(0,6)}`);
+    io.emit('admin:message', { text: 'El joc començarà en breus moments...', color: '#ffdd44' });
+  });
+
+  // Ctrl+Alt+Shift+O → Inici partida
+  socket.on('admin:start', () => {
+    console.log(`  [ADMIN] start per ${socket.id.slice(0,6)}`);
+    sessionActive    = true;
+    sessionStartTime = new Date();
+    sessionLogLines  = [];
+    players.forEach(p => { p.score = 0; p.correctAnswers = 0; p.wrongAnswers = 0; });
+    io.emit('admin:gamestart', { scores: scoreBoard() });
+    const ts = fmtDate(sessionStartTime);
+    sessionLogLines.push(`=== INICI DE PARTIDA: ${ts} ===`);
+    sessionLogLines.push(`Jugadors: ${Array.from(players.values()).map(p=>p.name||p.id.slice(0,6)).join(', ')}`);
+    sessionLogLines.push('');
+  });
+
+  // Ctrl+Alt+Shift+I → Fi partida
+  socket.on('admin:end', () => {
+    console.log(`  [ADMIN] end per ${socket.id.slice(0,6)}`);
+    sessionActive = false;
+    // Trobar guanyador
+    let winner = null;
+    players.forEach(p => { if (!winner || p.score > winner.score) winner = p; });
+    const winnerName  = winner ? (winner.name || winner.id.slice(0,6)) : '?';
+    const winnerScore = winner ? winner.score : 0;
+    io.emit('admin:gameend', {
+      message: `El joc ha acabat! El guanyador ha estat ${winnerName} amb ${winnerScore} punts`,
+      winner:  winnerName,
+      score:   winnerScore,
+      scores:  scoreBoard(),
+    });
+    sessionLogLines.push('');
+    sessionLogLines.push(`=== FI DE PARTIDA: ${fmtDate(new Date())} ===`);
+    sessionLogLines.push(`Guanyador: ${winnerName} (${winnerScore} punts)`);
+    writeSessionLog();
+    writeResultsLog(winnerName, winnerScore);
+  });
+
+  // Ctrl+Alt+Shift+U → Missatge personalitzat
+  socket.on('admin:broadcast', (data) => {
+    const msg = (data?.text || '').slice(0, 200).trim();
+    if (!msg) return;
+    console.log(`  [ADMIN] broadcast: "${msg}"`);
+    io.emit('admin:message', { text: msg, color: '#44ddff' });
   });
 
   // ── Desconexión ───────────────────────────────────────────────────────────
@@ -325,8 +452,10 @@ io.on('connection', (socket) => {
 async function resetGame() {
   questionPool = await loadQuestions();
   gameBoxes    = generateBoxes(questionPool);
-  players.forEach(p => { p.score = 0; });
+  players.forEach(p => { p.score = 0; p.correctAnswers = 0; p.wrongAnswers = 0; });
   focusedQuestionByPlayer.clear();
+  sessionActive   = false;
+  sessionLogLines = [];
   io.emit('game:reset', { boxes: gameBoxes.map(boxForClient), scores: scoreBoard() });
   console.log('\n  [RESET] Juego reiniciado — cajas y puntuaciones reseteadas\n');
 }
@@ -345,13 +474,18 @@ app.get('/admin/reset', async (req, res) => {
   server.listen(PORT, () => {
     const ip = getLocalIP();
     console.log('\n╔══════════════════════════════════════════╗');
-    console.log('║   SERVIDOR DE CLASE ARRANCADO            ║');
+    console.log('║   SERVIDOR DE CLASSE ARRANCAT            ║');
     console.log('╠══════════════════════════════════════════╣');
     console.log(`║  Local:    http://localhost:${PORT}          ║`);
-    console.log(`║  Alumnos:  http://${ip}:${PORT}    ║`);
+    console.log(`║  Alumnes:  http://${ip}:${PORT}    ║`);
     console.log('╚══════════════════════════════════════════╝\n');
-    console.log(`  ${gameBoxes.filter(b=>b.type==='breakable').length} cajas rompibles`);
-    console.log(`  ${gameBoxes.filter(b=>b.type==='question').length} cajas de preguntas`);
-    console.log(`  ${questionPool.length} preguntas en el pool\n`);
+    console.log(`  ${gameBoxes.filter(b=>b.type==='breakable').length} caixes rompibles`);
+    console.log(`  ${gameBoxes.filter(b=>b.type==='question').length} caixes de preguntes`);
+    console.log(`  ${questionPool.length} preguntes al pool\n`);
+    console.log('  Comandos admin (des del navegador):');
+    console.log('    Ctrl+Alt+Shift+P → Pre-avís inici');
+    console.log('    Ctrl+Alt+Shift+O → Inici partida');
+    console.log('    Ctrl+Alt+Shift+I → Fi partida');
+    console.log('    Ctrl+Alt+Shift+U → Missatge personalitzat\n');
   });
 })();

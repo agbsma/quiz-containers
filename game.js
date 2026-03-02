@@ -269,7 +269,8 @@ function onLevelReady() {
   loadStatus.textContent = 'Llest! Escriu el teu nom';
   loadStatus.classList.add('ready');
   playerNameInput.disabled = false;
-  enterGameBtn.disabled    = false;
+  // El botó resta desactivat fins que s'escrigui un nom
+  enterGameBtn.disabled    = true;
   enterGameBtn.textContent = 'Entrar al joc';
   playerNameInput.focus();
   placePendingBoxes();
@@ -316,7 +317,7 @@ function startGame() {
   loadOverlay.style.display = 'none';
   renderer.domElement.style.display = 'block';
   crosshair.style.display = 'block';
-  hud.style.display = 'block';
+  hud.style.display = 'none';   // Puntuació pròpia oculta (es veu al marcador dret)
   scoreboardEl.style.display = 'block';
   forcaHud.style.display = 'flex';
   overlay.classList.add('visible');
@@ -327,11 +328,14 @@ function startGame() {
 }
 
 enterGameBtn.addEventListener('click', () => {
-  if (!levelReady) return;
+  if (!levelReady || !playerNameInput.value.trim()) return;
   startGame();
 });
+playerNameInput.addEventListener('input', () => {
+  enterGameBtn.disabled = !playerNameInput.value.trim() || !levelReady;
+});
 playerNameInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && levelReady) startGame();
+  if (e.key === 'Enter' && levelReady && playerNameInput.value.trim()) startGame();
 });
 
 // ─── MODEL PERSONATGE (RobotExpressive) ──────────────────────────────────────
@@ -824,6 +828,8 @@ function createQuestionBox(data, x, floorY, z) {
     if (n.name.toLowerCase().includes('lid')) lidNode = n;
   });
 
+  if (lidNode) console.log('[LID] rotation.x al cargar:', lidNode.rotation.x, '(', THREE.MathUtils.radToDeg(lidNode.rotation.x).toFixed(1), '°)');
+
   const entry = {
     ...data,
     floorY,
@@ -832,8 +838,8 @@ function createQuestionBox(data, x, floorY, z) {
     questionGlowLight: null,
     questionGlowHalo: null,
     lidNode,
-    lidOpenX: lidNode ? (lidNode.rotation.x + QUESTION_LID_OPEN_RAD) : null,
-    lidClosedX: lidNode ? lidNode.rotation.x : null,
+    lidOpenX: lidNode ? lidNode.rotation.x : null,
+    lidClosedX: lidNode ? (lidNode.rotation.x - QUESTION_LID_OPEN_RAD / 2) : null,
   };
   boxData.set(data.id, entry);
   if (lidNode) lidNode.rotation.x = entry.lidClosedX;
@@ -1170,7 +1176,6 @@ socket.on('box:break', (d) => {
 
 socket.on('box:respawn', (d) => {
   if (levelReady) respawnBreakableBox(d.boxId, d.x, d.z);
-  showMsg('Una caixa ha reaparegut!', '#cc8833');
 });
 
 socket.on('box:newquestion', (d) => {
@@ -1194,7 +1199,6 @@ socket.on('box:answered', (d) => {
 
     if (d.playerId === myId) {
       myScore = d.scores?.find(s => s.id === myId)?.score ?? myScore;
-      myScoreEl.textContent = myScore;
       const pts = entry?.pts ?? 10;
       closeDialog();
       showBigFeedback('Correcte!', `Has aconseguit +${pts} punts`, '#44ff88');
@@ -1255,6 +1259,11 @@ socket.on('box:answered', (d) => {
         closeDialog();
         showBigFeedback('Error!', `La resposta correcta era: "${correctAnswer}"`, '#ff4444');
       }, 400);
+
+      if (d.scores) {
+        myScore = d.scores?.find(s => s.id === myId)?.score ?? myScore;
+        updateScoreboard(d.scores);
+      }
     }
   }
 
@@ -1273,7 +1282,6 @@ socket.on('game:reset', (d) => {
   else pendingBoxes = d.boxes;
   if (d.scores) updateScoreboard(d.scores);
   myScore = d.scores?.find(s => s.id === myId)?.score ?? 0;
-  myScoreEl.textContent = myScore;
   showMsg('El joc s\'ha reiniciat!', '#ffdd44');
 });
 
@@ -1450,6 +1458,46 @@ window.addEventListener('resize', () => {
   camera.aspect = innerWidth/innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+});
+
+// ─── COMANDOS ADMIN (Ctrl+Alt+Shift+P/O/I/U) ─────────────────────────────────
+
+window.addEventListener('keydown', (e) => {
+  if (!e.ctrlKey || !e.altKey || !e.shiftKey) return;
+  if (!gameStarted) return;
+
+  if (e.code === 'KeyP') {
+    e.preventDefault();
+    socket.emit('admin:prestart');
+  } else if (e.code === 'KeyO') {
+    e.preventDefault();
+    socket.emit('admin:start');
+  } else if (e.code === 'KeyI') {
+    e.preventDefault();
+    socket.emit('admin:end');
+  } else if (e.code === 'KeyU') {
+    e.preventDefault();
+    controls.unlock();
+    const msg = window.prompt('Quin missatge vols enviar?', '');
+    if (msg && msg.trim()) socket.emit('admin:broadcast', { text: msg.trim() });
+  }
+});
+
+// ─── EVENTS ADMIN (rebuts del servidor) ──────────────────────────────────────
+
+socket.on('admin:message', (d) => {
+  showBigFeedback(d.text, '', d.color || '#ffdd44');
+});
+
+socket.on('admin:gamestart', (d) => {
+  myScore = 0;
+  if (d.scores) updateScoreboard(d.scores);
+  showBigFeedback('Comença el joc!', '', '#44ff88');
+});
+
+socket.on('admin:gameend', (d) => {
+  if (d.scores) updateScoreboard(d.scores);
+  showBigFeedback(d.message || 'El joc ha acabat!', '', '#ffdd44');
 });
 
 // ─── DEBUG SLIDERS ───────────────────────────────────────────────────────────
