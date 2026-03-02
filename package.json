@@ -12,11 +12,15 @@
   "scripts": {
     "start": "webpack serve",
     "prebuild": "npx rimraf ./build && npx mkdirp ./build",
-    "build": "webpack --mode production"
+    "build": "webpack --mode production",
+    "start": "node server.js",
+    "serve": "npx serve ."
   },
   "dependencies": {
     "@types/ammo.js": "github:osman-turan/ammo.js-typings",
     "ammo.js": "kripken/ammo.js",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3",
     "three": "^0.127.0",
     "three-pathfinding": "^0.14.1",
     "webpack-cli": "^4.3.1"
