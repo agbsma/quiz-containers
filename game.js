@@ -511,7 +511,7 @@ function upgradeAvatarsToFBX() {
 
 // Colors granate per dificultat (1=clar → 5=molt fosc)
 const DIFF_GARNET = ['#c04060', '#9a2a48', '#7a1830', '#5c0f20', '#3a0510'];
-const DIFF_SCALE  = [0.90, 1.00, 1.10, 1.20, 1.30];
+const DIFF_SCALE  = [0.50, 0.75, 1.00, 1.40, 1.90];
 
 // Tenyir NOMÉS les parts vermelloses d'un cofre de preguntes
 function applyDifficultyColor(root, difficulty) {
