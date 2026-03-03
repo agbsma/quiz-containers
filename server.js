@@ -26,8 +26,10 @@ app.use(express.static(path.join(__dirname)));
 
 const QUESTIONS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT7IiShLIDNSMcbHOcvvOg4jfGAXUoNfp9n_lXjBG6aVNKfpBY1mKh9hwlXq1Pk5DgGXL9MyvrBQEFf/pub?gid=0&single=true&output=csv';
 
-const RESPAWN_DELAY_MS = 15000;   // 15 segundos para que reaparezca una caja rota
-const NUM_BREAKABLE    = 36;      // doble de cajas verdes
+const RESPAWN_DELAY_BREAK_MS    = 5000;   // segons per respawn caixa verda trencada
+const RESPAWN_DELAY_QUESTION_MS = 2000;   // segons per respawn caixa de pregunta
+const NUM_BREAKABLE             = 45;     // caixes verdes
+const NUM_QUESTIONS             = 18;     // caixes de preguntes
 const PTS_CORRECT      = 10;
 const PTS_WRONG        = -5;
 
@@ -136,8 +138,8 @@ function generateBoxes(questionPool) {
     boxes.push({ id: id++, type: 'breakable', x: pos.x, z: pos.z, broken: false });
   }
 
-  // Cajas de preguntas (una por cada pregunta del pool, máx 12)
-  const numQ = Math.min(questionPool.length, 12);
+  // Cajas de preguntas (una por cada pregunta del pool, máx NUM_QUESTIONS)
+  const numQ = Math.min(questionPool.length, NUM_QUESTIONS);
   for (let i = 0; i < numQ; i++) {
     const pos = randPos(boxes, 5);
     const q   = questionPool[i % questionPool.length];
@@ -307,7 +309,7 @@ io.on('connection', (socket) => {
     io.emit('box:break', { boxId: data.boxId });
     console.log(`  [rota] #${data.boxId} por ${socket.id.slice(0,6)}`);
 
-    // Respawn tras 15 s
+    // Respawn caixa verda tras 5 s
     setTimeout(() => {
       const pos = randPos(gameBoxes.filter(b => b.id !== data.boxId), 3);
       box.x      = pos.x;
@@ -315,7 +317,7 @@ io.on('connection', (socket) => {
       box.broken = false;
       io.emit('box:respawn', { boxId: data.boxId, x: pos.x, z: pos.z });
       console.log(`  [respawn] #${data.boxId} → (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`);
-    }, RESPAWN_DELAY_MS);
+    }, RESPAWN_DELAY_BREAK_MS);
   });
 
   // ── Responder pregunta ────────────────────────────────────────────────────
@@ -338,7 +340,7 @@ io.on('connection', (socket) => {
       console.log(`  [OK] #${data.boxId} por ${socket.id.slice(0,6)} (+${PTS_CORRECT}pts)`);
       io.emit('box:answered', { boxId: data.boxId, playerId: socket.id, correct: true, scores: scoreBoard() });
 
-      // Respawn de la caja de pregunta en nueva posición con nueva pregunta
+      // Respawn caixa pregunta en nova posició tras 2 s
       setTimeout(() => {
         const pos  = randPos(gameBoxes.filter(b => b.id !== data.boxId), 5);
         const newQ = pickQuestion(questionPool);
@@ -359,7 +361,7 @@ io.on('connection', (socket) => {
           pts:      newQ.pts ?? 10,
         });
         console.log(`  [q-respawn] #${data.boxId} → (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`);
-      }, RESPAWN_DELAY_MS);
+      }, RESPAWN_DELAY_QUESTION_MS);
     } else {
       p.score        += PTS_WRONG;
       p.wrongAnswers += 1;
