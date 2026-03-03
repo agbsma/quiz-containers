@@ -1167,6 +1167,13 @@ socket.on('player:name',   (d) => {
 
 socket.on('score:update', (d) => updateScoreboard(d.scores));
 
+socket.on('score:restore', (d) => {
+  myScore = d.score ?? 0;
+  setBombaCharges(d.bombCharges ?? 0);
+  if (d.hasBomb) setBombaCharges(3);
+  showBigFeedback('Puntuació restaurada', `${myScore} pts recuperats`, '#44ddff');
+});
+
 socket.on('box:focus', (d) => {
   if (!Number.isInteger(d?.boxId)) return;
   setQuestionChestGlow(d.boxId, !!d.open);

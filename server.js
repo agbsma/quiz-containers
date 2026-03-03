@@ -163,6 +163,39 @@ function boxForClient(b) {
   return safe;
 }
 
+// ─── SCORES PERSISTENTS ──────────────────────────────────────────────────────
+
+const SCORES_FILE = path.join(__dirname, 'savedScores.json');
+let savedScores = {};  // { nomJugador: { score, correctAnswers, wrongAnswers, bombCharges, hasBomb } }
+
+function loadSavedScores() {
+  try {
+    if (fs.existsSync(SCORES_FILE)) {
+      savedScores = JSON.parse(fs.readFileSync(SCORES_FILE, 'utf8'));
+      console.log(`  [SCORES] ${Object.keys(savedScores).length} puntuacions recuperades de disc`);
+    }
+  } catch(e) { savedScores = {}; }
+}
+
+function persistScores() {
+  try { fs.writeFileSync(SCORES_FILE, JSON.stringify(savedScores), 'utf8'); }
+  catch(e) { console.error('[SCORES] Error guardant:', e.message); }
+}
+
+function savePlayerScore(p) {
+  if (!p.name) return;
+  savedScores[p.name] = {
+    score: p.score, correctAnswers: p.correctAnswers,
+    wrongAnswers: p.wrongAnswers, bombCharges: p.bombCharges, hasBomb: p.hasBomb,
+  };
+  persistScores();
+}
+
+function clearSavedScores() {
+  savedScores = {};
+  try { if (fs.existsSync(SCORES_FILE)) fs.unlinkSync(SCORES_FILE); } catch(e) {}
+}
+
 // ─── ESTADO ──────────────────────────────────────────────────────────────────
 
 let questionPool = FALLBACK_QUESTIONS;
@@ -274,6 +307,15 @@ io.on('connection', (socket) => {
     const p = players.get(socket.id);
     if (!p) return;
     p.name = (data.name || '').slice(0, 20).trim() || `J${socket.id.slice(0,4)}`;
+    // Restaurar puntuació guardada si existeix
+    if (savedScores[p.name]) {
+      const s = savedScores[p.name];
+      p.score = s.score; p.correctAnswers = s.correctAnswers;
+      p.wrongAnswers = s.wrongAnswers; p.bombCharges = s.bombCharges;
+      p.hasBomb = s.hasBomb;
+      console.log(`  [SCORES] Restaurat ${p.name}: ${p.score} pts`);
+      socket.emit('score:restore', { score: p.score, bombCharges: p.bombCharges, hasBomb: p.hasBomb });
+    }
     socket.broadcast.emit('player:name', { id: socket.id, name: p.name });
     io.emit('score:update', { scores: scoreBoard() });
   });
@@ -356,6 +398,7 @@ io.on('connection', (socket) => {
         }
       }
 
+      savePlayerScore(p);
       io.emit('box:answered', { boxId: data.boxId, playerId: socket.id, correct: true, scores: scoreBoard() });
 
       // Respawn caixa pregunta en nova posició tras 2 s
@@ -385,6 +428,7 @@ io.on('connection', (socket) => {
     } else {
       p.score        += PTS_WRONG;
       p.wrongAnswers += 1;
+      savePlayerScore(p);
       logAnswer(p.name || p.id.slice(0,6), box.question, answerGiven, false);
       console.log(`  [FAIL] #${data.boxId} por ${socket.id.slice(0,6)} (${PTS_WRONG}pts)`);
       // Guardar la respuesta correcta antes de sobreescribir el box
@@ -417,7 +461,8 @@ io.on('connection', (socket) => {
     sessionActive    = true;
     sessionStartTime = new Date();
     sessionLogLines  = [];
-    players.forEach(p => { p.score = 0; p.correctAnswers = 0; p.wrongAnswers = 0; });
+    players.forEach(p => { p.score = 0; p.correctAnswers = 0; p.wrongAnswers = 0; p.bombCharges = 0; p.hasBomb = false; });
+    clearSavedScores();
     io.emit('admin:gamestart', { scores: scoreBoard() });
     const ts = fmtDate(sessionStartTime);
     sessionLogLines.push(`=== INICI DE PARTIDA: ${ts} ===`);
@@ -480,7 +525,7 @@ io.on('connection', (socket) => {
 
     // Penalitzar target (death 10s com si hagués fallat)
     const target = players.get(targetId);
-    if (target) { target.score += PTS_WRONG; target.wrongAnswers += 1; }
+    if (target) { target.score += PTS_WRONG; target.wrongAnswers += 1; savePlayerScore(target); }
     focusedQuestionByPlayer.delete(targetId);
     io.to(targetId).emit('bomb:hit', { scores: scoreBoard() });
 
@@ -512,6 +557,7 @@ io.on('connection', (socket) => {
       const dist = Math.sqrt((bp.x - blastX) ** 2 + (bp.z - blastZ) ** 2);
       if (dist <= BLAST_R) {
         bomber.score += PTS_WRONG; bomber.wrongAnswers += 1;
+        savePlayerScore(bomber);
         socket.emit('bomb:splash', { scores: scoreBoard() });
         io.emit('score:update', { scores: scoreBoard() });
         console.log(`  [SPLASH] ${socket.id.slice(0,6)} no ha fugit a temps`);
@@ -538,8 +584,9 @@ io.on('connection', (socket) => {
 async function resetGame() {
   questionPool = await loadQuestions();
   gameBoxes    = generateBoxes(questionPool);
-  players.forEach(p => { p.score = 0; p.correctAnswers = 0; p.wrongAnswers = 0; });
+  players.forEach(p => { p.score = 0; p.correctAnswers = 0; p.wrongAnswers = 0; p.bombCharges = 0; p.hasBomb = false; });
   focusedQuestionByPlayer.clear();
+  clearSavedScores();
   sessionActive   = false;
   sessionLogLines = [];
   io.emit('game:reset', { boxes: gameBoxes.map(boxForClient), scores: scoreBoard() });
@@ -604,6 +651,7 @@ app.get('/admin/logs/:filename', (req, res) => {
 // ─── ARRANQUE ────────────────────────────────────────────────────────────────
 
 (async () => {
+  loadSavedScores();
   questionPool = await loadQuestions();
   gameBoxes    = generateBoxes(questionPool);
 
