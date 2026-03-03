@@ -470,17 +470,28 @@ app.get('/admin/reset', async (req, res) => {
 app.get('/admin/logs', (req, res) => {
   try {
     const files = fs.readdirSync(LOGS_DIR)
-      .filter(f => f.endsWith('.log') && f !== '.gitkeep')
+      .filter(f => (f.endsWith('.log') || f.endsWith('.csv')) && f !== '.gitkeep')
       .sort().reverse();
+    const csvFiles = files.filter(f => f.endsWith('.csv'));
+    const logFiles = files.filter(f => f.endsWith('.log'));
     let html = '<html><head><meta charset="utf-8"><title>Logs</title>';
     html += '<style>body{font-family:monospace;background:#111;color:#eee;padding:20px}';
-    html += 'a{color:#44ddff}h2{color:#ffdd44}</style></head><body>';
+    html += 'a{color:#44ddff}h2{color:#ffdd44}h3{color:#88ff88;margin-top:24px}</style></head><body>';
     html += '<h2>Fitxers de log</h2>';
-    if (!files.length) { html += '<p>Cap fitxer de log encara.</p>'; }
+    if (!files.length) { html += '<p>Cap fitxer encara.</p>'; }
     else {
-      files.forEach(f => {
-        html += `<p><a href="/admin/logs/${encodeURIComponent(f)}">${f}</a></p>`;
-      });
+      if (csvFiles.length) {
+        html += '<h3>📊 Resultats (CSV)</h3>';
+        csvFiles.forEach(f => {
+          html += `<p><a href="/admin/logs/${encodeURIComponent(f)}">${f}</a></p>`;
+        });
+      }
+      if (logFiles.length) {
+        html += '<h3>📋 Partides (LOG)</h3>';
+        logFiles.forEach(f => {
+          html += `<p><a href="/admin/logs/${encodeURIComponent(f)}">${f}</a></p>`;
+        });
+      }
     }
     html += '</body></html>';
     res.send(html);
