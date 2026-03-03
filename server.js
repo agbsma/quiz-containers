@@ -494,7 +494,12 @@ app.get('/admin/logs/:filename', (req, res) => {
   const filename = path.basename(req.params.filename);   // evita path traversal
   const filepath = path.join(LOGS_DIR, filename);
   if (!fs.existsSync(filepath)) return res.status(404).send('Fitxer no trobat');
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  if (filename.endsWith('.csv')) {
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  } else {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  }
   res.sendFile(filepath);
 });
 
