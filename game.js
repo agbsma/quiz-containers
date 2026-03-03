@@ -1272,44 +1272,11 @@ socket.on('box:answered', (d) => {
 
   } else {
     if (d.playerId === myId) {
-      frozenUntilMs = performance.now() + DEATH_LOCK_MS;
-      localDeathUntilMs = frozenUntilMs;
-      controls.getDirection(tmpVec);
-      deathLockedYaw = Math.atan2(-tmpVec.x, -tmpVec.z);
-      moveState.forward = moveState.backward = moveState.left = moveState.right = false;
-      playerVel.set(0, 0, 0);
-      localIsMoving = false;
-
-      socket.emit('player:emote', { anim: 'Death', holdMs: DEATH_LOCK_MS });
-
-      if (localActions['Death']) {
-        const death = localActions['Death'];
-        if (localMixer) localMixer.stopAllAction();
-        const base = localIsMoving ? localJogAction : localIdleAction;
-        if (base) base.fadeOut(0.2);
-        death.reset();
-        death.setLoop(THREE.LoopRepeat, Infinity);
-        death.clampWhenFinished = false;
-        death.fadeIn(0.15).play();
-
-        if (deathRecoverTimer) clearTimeout(deathRecoverTimer);
-        deathRecoverTimer = setTimeout(() => {
-          death.fadeOut(0.2);
-          death.stop();
-          death.setLoop(THREE.LoopOnce, 1);
-          death.clampWhenFinished = true;
-          localDeathUntilMs = 0;
-          deathLockedYaw = null;
-          const back = localIsMoving ? localJogAction : localIdleAction;
-          if (back) back.reset().fadeIn(0.2).play();
-        }, DEATH_LOCK_MS);
-      }
-
       dialogAnswers.forEach(b => b.classList.add('wrong'));
       const correctAnswer = d.correctAnswer || '';
       setTimeout(() => {
         closeDialog();
-        showBigFeedback('Error!', `La resposta correcta era: "${correctAnswer}"`, '#ff4444');
+        applyDeathEffect('Error!', `La resposta correcta era: "${correctAnswer}"`);
       }, 400);
 
       if (d.scores) {
@@ -1482,20 +1449,22 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.code==='KeyE' && controls.isLocked && gameStarted && !dialogOpen) {
     if (!myHasBomb) { showMsg('No tens bomba (respon 3 preguntes dificultat 5)', '#888'); return; }
-    const myPos = playerCollider.start.clone();
-    let closestId   = null;
-    let closestDist = Infinity;
-    otherPlayers.forEach((op, id) => {
-      if (!op.group) return;
-      const opPos = new THREE.Vector3();
-      op.group.getWorldPosition(opPos);
-      const dist = myPos.distanceTo(opPos);
-      if (dist < 6 && dist < closestDist) { closestDist = dist; closestId = id; }
+    // Buscar un cofre de pregunta obert (amb glow halo) i comprovar si hi som dins
+    const myPos    = playerCollider.start.clone();
+    const BLAST_R  = 2.5;
+    let targetBoxId = null;
+    boxData.forEach((entry, boxId) => {
+      if (entry.type !== 'question' || !entry.questionGlowHalo || !entry.group) return;
+      const chestPos = new THREE.Vector3();
+      entry.group.getWorldPosition(chestPos);
+      chestPos.y += 1.1; // centre de l'esfera halo
+      if (myPos.distanceTo(chestPos) <= BLAST_R) targetBoxId = boxId;
     });
-    if (closestId) {
-      socket.emit('bomb:use', { targetId: closestId });
+    if (targetBoxId !== null) {
+      socket.emit('bomb:use', { boxId: targetBoxId });
+      showMsg('💣 Bomba col·locada! Fuig en 3 segons!', '#c04060');
     } else {
-      showMsg('Cap jugador proper responent una pregunta', '#ff8844');
+      showMsg('Has d\'estar dins l\'esfera del cofre obert', '#ff8844');
     }
   }
   if (!dialogOpen) {
@@ -1554,6 +1523,45 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// ─── DEATH EFFECT (reutilitzable per fallo i bomba) ───────────────────────────
+
+function applyDeathEffect(title, subtitle) {
+  frozenUntilMs = performance.now() + DEATH_LOCK_MS;
+  localDeathUntilMs = frozenUntilMs;
+  controls.getDirection(tmpVec);
+  deathLockedYaw = Math.atan2(-tmpVec.x, -tmpVec.z);
+  moveState.forward = moveState.backward = moveState.left = moveState.right = false;
+  playerVel.set(0, 0, 0);
+  localIsMoving = false;
+
+  socket.emit('player:emote', { anim: 'Death', holdMs: DEATH_LOCK_MS });
+
+  if (localActions['Death']) {
+    const death = localActions['Death'];
+    if (localMixer) localMixer.stopAllAction();
+    const base = localIsMoving ? localJogAction : localIdleAction;
+    if (base) base.fadeOut(0.2);
+    death.reset();
+    death.setLoop(THREE.LoopRepeat, Infinity);
+    death.clampWhenFinished = false;
+    death.fadeIn(0.15).play();
+
+    if (deathRecoverTimer) clearTimeout(deathRecoverTimer);
+    deathRecoverTimer = setTimeout(() => {
+      death.fadeOut(0.2);
+      death.stop();
+      death.setLoop(THREE.LoopOnce, 1);
+      death.clampWhenFinished = true;
+      localDeathUntilMs = 0;
+      deathLockedYaw = null;
+      const back = localIsMoving ? localJogAction : localIdleAction;
+      if (back) back.reset().fadeIn(0.2).play();
+    }, DEATH_LOCK_MS);
+  }
+
+  showBigFeedback(title, subtitle, '#ff4444');
+}
+
 // ─── EVENTS BOMBA ─────────────────────────────────────────────────────────────
 
 socket.on('bomb:charge', (d) => {
@@ -1566,13 +1574,22 @@ socket.on('bomb:ready', (d) => {
 });
 
 socket.on('bomb:hit', (d) => {
-  // Rebem una bomba: tanca el diàleg i penalitza
+  // Tanca el diàleg immediatament
   if (dialogOpen) closeDialog();
   if (d.scores) {
     myScore = d.scores?.find(s => s.id === myId)?.score ?? myScore;
     updateScoreboard(d.scores);
   }
-  showBigFeedback('💥 T\'han llançat una BOMBA!', '-5 punts i has perdut la pregunta', '#ff4444');
+  // Aplicar death complet igual que fallo de pregunta
+  applyDeathEffect('💥 T\'han llançat una BOMBA!', '-5 punts i has perdut la pregunta');
+});
+
+socket.on('bomb:splash', (d) => {
+  if (d.scores) {
+    myScore = d.scores?.find(s => s.id === myId)?.score ?? myScore;
+    updateScoreboard(d.scores);
+  }
+  applyDeathEffect('💥 T\'has quedat a l\'ona expansiva!', '-5 punts — fuig quan llancis la bomba!');
 });
 
 socket.on('bomb:effect', (d) => {

@@ -460,42 +460,63 @@ io.on('connection', (socket) => {
     const p = players.get(socket.id);
     if (!p || !p.hasBomb) return;
 
-    const targetId  = data.targetId;
-    const focusedId = focusedQuestionByPlayer.get(targetId);
-    if (focusedId === undefined) return; // el target no està responent
-
-    const box = gameBoxes.find(b => b.id === focusedId);
+    const boxId = data.boxId;
+    const box   = gameBoxes.find(b => b.id === boxId && b.type === 'question');
     if (!box) return;
 
+    // Trobar qui té obert aquest cofre
+    let targetId = null;
+    focusedQuestionByPlayer.forEach((bid, pid) => { if (bid === boxId) targetId = pid; });
+    if (!targetId) return;
+
+    // Posició original de l'explosió (per splash al bomber als 3s)
+    const blastX = box.x;
+    const blastZ = box.z;
+    const BLAST_R = 2.5;
+
     // Usar bomba
-    p.hasBomb     = false;
-    p.bombCharges = 0;
+    p.hasBomb = false; p.bombCharges = 0;
     socket.emit('bomb:charge', { charges: 0 });
 
-    // Restar punts al target
+    // Penalitzar target (death 10s com si hagués fallat)
     const target = players.get(targetId);
     if (target) { target.score += PTS_WRONG; target.wrongAnswers += 1; }
-
-    // Tancar diàleg del target i notificar
     focusedQuestionByPlayer.delete(targetId);
     io.to(targetId).emit('bomb:hit', { scores: scoreBoard() });
 
-    // Respawn del cofre a nova posició amb nova pregunta
+    // Respawn cofre a nova posició
     const pos  = randPos(gameBoxes.filter(b => b.id !== box.id), 5);
     const newQ = pickQuestion(questionPool);
-    box.x          = pos.x; box.z = pos.z;
-    box.question   = newQ.question; box.answers = newQ.answers;
-    box.correct    = newQ.correct;  box.pts = newQ.pts ?? 10;
+    box.x = pos.x; box.z = pos.z;
+    box.question = newQ.question; box.answers = newQ.answers;
+    box.correct  = newQ.correct;  box.pts = newQ.pts ?? 10;
     box.difficulty = newQ.difficulty ?? 1;
-    box.answered   = false; box.answeredBy = null;
+    box.answered = false; box.answeredBy = null;
 
     io.emit('box:questionrespawn', {
       boxId: box.id, x: pos.x, z: pos.z,
       question: newQ.question, answers: newQ.answers,
       pts: newQ.pts ?? 10, difficulty: newQ.difficulty ?? 1,
     });
-    io.emit('bomb:effect', { bomberId: socket.id, targetId, targetName: target?.name || '?', scores: scoreBoard() });
+    io.emit('bomb:effect', {
+      bomberId: socket.id, targetId,
+      targetName: target?.name || '?', scores: scoreBoard(),
+    });
     console.log(`  [BOMBA] ${socket.id.slice(0,6)} → ${targetId.slice(0,6)}`);
+
+    // Splash als 3 s: si el bomber segueix al radi → death i -5 pts
+    setTimeout(() => {
+      const bomber = players.get(socket.id);
+      if (!bomber) return;
+      const bp = bomber.position;
+      const dist = Math.sqrt((bp.x - blastX) ** 2 + (bp.z - blastZ) ** 2);
+      if (dist <= BLAST_R) {
+        bomber.score += PTS_WRONG; bomber.wrongAnswers += 1;
+        socket.emit('bomb:splash', { scores: scoreBoard() });
+        io.emit('score:update', { scores: scoreBoard() });
+        console.log(`  [SPLASH] ${socket.id.slice(0,6)} no ha fugit a temps`);
+      }
+    }, 3000);
   });
 
   // ── Desconexión ───────────────────────────────────────────────────────────
