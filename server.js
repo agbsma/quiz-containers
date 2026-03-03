@@ -96,7 +96,7 @@ async function loadQuestions() {
   }
   try {
     console.log('  Cargando preguntas desde Google Sheets...');
-    const res  = await fetch(QUESTIONS_CSV_URL);
+    const res  = await fetch(QUESTIONS_CSV_URL + '&_t=' + Date.now());
     const text = await res.text();
     const qs   = parseCSV(text);
     if (!qs.length) throw new Error('CSV vacío o sin preguntas válidas');
