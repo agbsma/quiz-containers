@@ -29,7 +29,7 @@ const QUESTIONS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT7Ii
 const RESPAWN_DELAY_BREAK_MS    = 5000;   // segons per respawn caixa verda trencada
 const RESPAWN_DELAY_QUESTION_MS = 2000;   // segons per respawn caixa de pregunta
 const NUM_BREAKABLE             = 45;     // caixes verdes
-const NUM_QUESTIONS             = 18;     // caixes de preguntes
+const NUM_QUESTIONS             = 23;     // caixes de preguntes
 const PTS_BY_DIFF      = { 1: 5, 2: 10, 3: 15, 4: 20, 5: 25 };
 const PTS_WRONG        = -5;
 
@@ -345,8 +345,8 @@ io.on('connection', (socket) => {
       logAnswer(p.name || p.id.slice(0,6), box.question, answerGiven, true);
       console.log(`  [OK] #${data.boxId} dif${box.difficulty} por ${socket.id.slice(0,6)} (+${pts}pts)`);
 
-      // Bomba: acumular càrregues per preguntes de dificultat 5
-      if ((box.difficulty ?? 1) === 5 && !p.hasBomb) {
+      // Bomba: acumular càrregues per preguntes de dificultat 4 o 5
+      if ((box.difficulty ?? 1) >= 4 && !p.hasBomb) {
         p.bombCharges = Math.min(3, (p.bombCharges || 0) + 1);
         if (p.bombCharges >= 3) {
           p.hasBomb = true;
