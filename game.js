@@ -28,6 +28,8 @@ const sbListEl         = document.getElementById('sbList');
 const forcaHud         = document.getElementById('forcaHud');
 const forcaDots        = [document.getElementById('dot0'), document.getElementById('dot1'), document.getElementById('dot2')];
 const forcaLabel       = document.getElementById('forcaLabel');
+const bombaHud         = document.getElementById('bombaHud');
+const bombaDots        = [document.getElementById('bdot0'), document.getElementById('bdot1'), document.getElementById('bdot2')];
 const msgEl            = document.getElementById('msg');
 const hintEl           = document.getElementById('hint');
 const errorBox         = document.getElementById('error');
@@ -157,6 +159,26 @@ function setForca(v) {
   } else {
     forcaLabel.textContent = `Força ${forca}/3`;
     forcaLabel.style.color = 'rgba(255,255,255,0.7)';
+  }
+}
+
+// ─── BOMBA ────────────────────────────────────────────────────────────────────
+
+let myBombCharges = 0;
+let myHasBomb     = false;
+
+function setBombaCharges(charges) {
+  myBombCharges = Math.max(0, Math.min(3, charges));
+  myHasBomb     = myBombCharges >= 3;
+  bombaDots.forEach((d, i) => {
+    d.classList.remove('on', 'max');
+    if (myHasBomb) { if (i < 3) d.classList.add('max'); }
+    else if (i < myBombCharges) d.classList.add('on');
+  });
+  const lbl = document.getElementById('bombaLabel');
+  if (lbl) {
+    lbl.textContent = myHasBomb ? 'BOMBA LLESTA! [E]' : `Bomba ${myBombCharges}/3`;
+    lbl.style.color = myHasBomb ? '#c04060' : 'rgba(255,255,255,0.7)';
   }
 }
 
@@ -320,6 +342,8 @@ function startGame() {
   hud.style.display = 'none';   // Puntuació pròpia oculta (es veu al marcador dret)
   scoreboardEl.style.display = 'block';
   forcaHud.style.display = 'flex';
+  bombaHud.style.display = 'flex';
+  setBombaCharges(0);
   overlay.classList.add('visible');
   overlayTitle.textContent = `BENVINGUT, ${myName}!`;
   gameStarted = true;
@@ -482,6 +506,29 @@ function upgradeAvatarsToFBX() {
     }
     p.group = group; p.mixer = mixer; p.actions = actions;
     p.idleAction = idleAction; p.jogAction = jogAction;
+  });
+}
+
+// Colors granate per dificultat (1=clar → 5=molt fosc)
+const DIFF_GARNET = ['#c04060', '#9a2a48', '#7a1830', '#5c0f20', '#3a0510'];
+const DIFF_SCALE  = [0.90, 1.00, 1.10, 1.20, 1.30];
+
+// Tenyir NOMÉS les parts vermelloses d'un cofre de preguntes
+function applyDifficultyColor(root, difficulty) {
+  const col = new THREE.Color(DIFF_GARNET[(difficulty ?? 1) - 1] || DIFF_GARNET[0]);
+  root.traverse(child => {
+    if (!child.isMesh) return;
+    const mats = Array.isArray(child.material) ? child.material : [child.material];
+    mats.forEach((mat, i) => {
+      // Detectar parts vermelloses: R dominant, G i B baixos
+      if (mat.color.r < 0.35) return;
+      if (mat.color.r < mat.color.g * 1.3) return;
+      if (mat.color.r < mat.color.b * 1.3) return;
+      const m = mat.clone();
+      m.color.set(col);
+      if (Array.isArray(child.material)) child.material[i] = m;
+      else child.material = m;
+    });
   });
 }
 
@@ -805,12 +852,17 @@ function createQuestionBox(data, x, floorY, z) {
   const group = new THREE.Group();
   group.position.set(x, 0, z);
 
+  const diff      = data.difficulty ?? 1;
+  const diffIdx   = Math.max(0, Math.min(4, diff - 1));
+  const baseScale = 1.8 * DIFF_SCALE[diffIdx];
+
   let visual = cloneChestTemplate(chestSpecialModel);
   if (!visual) {
     visual = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.2, 2.2), MAT_QUESTION.clone());
     visual.position.set(0, floorY + 1.1, 0);
   } else {
-    visual.scale.setScalar(1.8);
+    visual.scale.setScalar(baseScale);
+    applyDifficultyColor(visual, diff);
     group.add(visual);
     placeObjectOnFloor(group, floorY);
   }
@@ -1291,7 +1343,8 @@ socket.on('box:questionrespawn', (d) => {
     const floorY = findFloorY(d.x, d.z) ?? 0;
     createQuestionBox(
       { id: d.boxId, type: 'question', x: d.x, z: d.z,
-        question: d.question, answers: d.answers, pts: d.pts, answered: false },
+        question: d.question, answers: d.answers, pts: d.pts,
+        difficulty: d.difficulty ?? 1, answered: false },
       d.x, floorY, d.z
     );
   }
@@ -1427,6 +1480,24 @@ window.addEventListener('keydown', (e) => {
     socket.emit('player:emote', { anim: 'ThumbsUp' });
     playLocalEmote('ThumbsUp');
   }
+  if (e.code==='KeyE' && controls.isLocked && gameStarted && !dialogOpen) {
+    if (!myHasBomb) { showMsg('No tens bomba (respon 3 preguntes dificultat 5)', '#888'); return; }
+    const myPos = playerCollider.start.clone();
+    let closestId   = null;
+    let closestDist = Infinity;
+    otherPlayers.forEach((op, id) => {
+      if (!op.group) return;
+      const opPos = new THREE.Vector3();
+      op.group.getWorldPosition(opPos);
+      const dist = myPos.distanceTo(opPos);
+      if (dist < 6 && dist < closestDist) { closestDist = dist; closestId = id; }
+    });
+    if (closestId) {
+      socket.emit('bomb:use', { targetId: closestId });
+    } else {
+      showMsg('Cap jugador proper responent una pregunta', '#ff8844');
+    }
+  }
   if (!dialogOpen) {
     const ck = e.key.toLowerCase();
     if (ck === 'i') { camOffset.x = Math.min( 3, camOffset.x + CAM_STEP); updateCamPanel(); }
@@ -1481,6 +1552,36 @@ window.addEventListener('keydown', (e) => {
     const msg = window.prompt('Quin missatge vols enviar?', '');
     if (msg && msg.trim()) socket.emit('admin:broadcast', { text: msg.trim() });
   }
+});
+
+// ─── EVENTS BOMBA ─────────────────────────────────────────────────────────────
+
+socket.on('bomb:charge', (d) => {
+  setBombaCharges(d.charges ?? 0);
+});
+
+socket.on('bomb:ready', (d) => {
+  setBombaCharges(3);
+  showBigFeedback('💣 BOMBA LLESTA!', 'Ves a un jugador que respon i prem [E]', '#c04060');
+});
+
+socket.on('bomb:hit', (d) => {
+  // Rebem una bomba: tanca el diàleg i penalitza
+  if (dialogOpen) closeDialog();
+  if (d.scores) {
+    myScore = d.scores?.find(s => s.id === myId)?.score ?? myScore;
+    updateScoreboard(d.scores);
+  }
+  showBigFeedback('💥 T\'han llançat una BOMBA!', '-5 punts i has perdut la pregunta', '#ff4444');
+});
+
+socket.on('bomb:effect', (d) => {
+  // Notificació global de bomba (per a espectadors i el bomber)
+  if (d.bomberId === myId) {
+    showBigFeedback('💣 BOMBA LLANÇADA!', `Has interromput a ${d.targetName}`, '#c04060');
+    setBombaCharges(0);
+  }
+  if (d.scores) updateScoreboard(d.scores);
 });
 
 // ─── EVENTS ADMIN (rebuts del servidor) ──────────────────────────────────────

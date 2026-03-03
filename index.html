@@ -156,6 +156,26 @@
         text-transform: uppercase; letter-spacing: 1px; text-shadow: 1px 1px 2px #000;
       }
 
+      /* ── HUD bomba ───────────────────────────────────────────── */
+      #bombaHud {
+        position: fixed; bottom: 22px; left: calc(50% + 80px);
+        display: none; flex-direction: column; align-items: center; gap: 5px;
+        z-index: 5; pointer-events: none;
+      }
+      #bombaDots { display: flex; gap: 8px; }
+      .bdot {
+        width: 15px; height: 15px; border-radius: 50%;
+        border: 2px solid #5c1a28; background: transparent;
+        transition: background .2s, box-shadow .2s;
+      }
+      .bdot.on  { background: #3a0510; border-color: #7a1830; }
+      .bdot.max { background: #3a0510; border-color: #c04060;
+                  box-shadow: 0 0 8px #7a1830; }
+      #bombaLabel {
+        font-size: 11px; color: rgba(255,255,255,0.7);
+        text-transform: uppercase; letter-spacing: 1px; text-shadow: 1px 1px 2px #000;
+      }
+
       /* ── Missatge petit ──────────────────────────────────────── */
       #msg {
         position: fixed; bottom: 72px; left: 50%;
@@ -395,6 +415,7 @@
           <div class="wk-row"><kbd>Ratolí</kbd> mirar</div>
           <div class="wk-row"><kbd>Clic esquerre</kbd> trencar cofre</div>
           <div class="wk-row"><kbd>Q</kbd> obrir pregunta</div>
+          <div class="wk-row"><kbd>E</kbd> llançar bomba (cal tenir-la)</div>
           <div class="wk-row"><kbd>Esc</kbd> instruccions</div>
         </div>
         <button id="startBtn">Entrar</button>
@@ -417,6 +438,16 @@
         <div class="dot" id="dot2"></div>
       </div>
       <div id="forcaLabel">Força</div>
+    </div>
+
+    <!-- Bomba -->
+    <div id="bombaHud">
+      <div id="bombaDots">
+        <div class="bdot" id="bdot0"></div>
+        <div class="bdot" id="bdot1"></div>
+        <div class="bdot" id="bdot2"></div>
+      </div>
+      <div id="bombaLabel">Bomba</div>
     </div>
 
     <!-- Missatges -->

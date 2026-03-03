@@ -30,7 +30,7 @@ const RESPAWN_DELAY_BREAK_MS    = 5000;   // segons per respawn caixa verda tren
 const RESPAWN_DELAY_QUESTION_MS = 2000;   // segons per respawn caixa de pregunta
 const NUM_BREAKABLE             = 45;     // caixes verdes
 const NUM_QUESTIONS             = 18;     // caixes de preguntes
-const PTS_CORRECT      = 10;
+const PTS_BY_DIFF      = { 1: 5, 2: 10, 3: 15, 4: 20, 5: 25 };
 const PTS_WRONG        = -5;
 
 // Directorio de logs (en el mismo directorio del servidor)
@@ -86,7 +86,10 @@ function parseCSV(csv) {
     const idx = parseInt(c[5], 10) - 1;   // 0-based
     if (isNaN(idx) || idx < 0 || idx > 3) continue;
     if (!c[0] || !c[1]) continue;
-    questions.push({ question: c[0], answers: [c[1], c[2], c[3], c[4]], correct: idx, pts: 10 });
+    const rawDiff = parseInt(c[6], 10);
+    const difficulty = (!isNaN(rawDiff) && rawDiff >= 1 && rawDiff <= 5) ? rawDiff : 1;
+    const pts = PTS_BY_DIFF[difficulty] ?? 10;
+    questions.push({ question: c[0], answers: [c[1], c[2], c[3], c[4]], correct: idx, difficulty, pts });
   }
   return questions;
 }
@@ -146,7 +149,8 @@ function generateBoxes(questionPool) {
     boxes.push({
       id: id++, type: 'question',
       x: pos.x, z: pos.z,
-      question: q.question, answers: q.answers, correct: q.correct, pts: q.pts ?? 10,
+      question: q.question, answers: q.answers, correct: q.correct,
+      pts: q.pts ?? 10, difficulty: q.difficulty ?? 1,
       answered: false, answeredBy: null,
     });
   }
@@ -248,6 +252,7 @@ io.on('connection', (socket) => {
   const player = {
     id: socket.id, color, name: '', position: { x: 2.14, y: 1.48, z: -1.36 },
     rotation: 0, score: 0, correctAnswers: 0, wrongAnswers: 0,
+    bombCharges: 0, hasBomb: false,
   };
   players.set(socket.id, player);
   console.log(`[+] Conectado ${socket.id.slice(0,6)}  (${players.size} jugadores)`);
@@ -334,10 +339,23 @@ io.on('connection', (socket) => {
       focusedQuestionByPlayer.delete(socket.id);
       box.answered   = true;
       box.answeredBy = socket.id;
-      p.score          += PTS_CORRECT;
+      const pts = box.pts ?? PTS_BY_DIFF[box.difficulty ?? 1] ?? 10;
+      p.score          += pts;
       p.correctAnswers += 1;
       logAnswer(p.name || p.id.slice(0,6), box.question, answerGiven, true);
-      console.log(`  [OK] #${data.boxId} por ${socket.id.slice(0,6)} (+${PTS_CORRECT}pts)`);
+      console.log(`  [OK] #${data.boxId} dif${box.difficulty} por ${socket.id.slice(0,6)} (+${pts}pts)`);
+
+      // Bomba: acumular càrregues per preguntes de dificultat 5
+      if ((box.difficulty ?? 1) === 5 && !p.hasBomb) {
+        p.bombCharges = Math.min(3, (p.bombCharges || 0) + 1);
+        if (p.bombCharges >= 3) {
+          p.hasBomb = true;
+          socket.emit('bomb:ready', { charges: 3 });
+        } else {
+          socket.emit('bomb:charge', { charges: p.bombCharges });
+        }
+      }
+
       io.emit('box:answered', { boxId: data.boxId, playerId: socket.id, correct: true, scores: scoreBoard() });
 
       // Respawn caixa pregunta en nova posició tras 2 s
@@ -350,15 +368,17 @@ io.on('connection', (socket) => {
         box.answers    = newQ.answers;
         box.correct    = newQ.correct;
         box.pts        = newQ.pts ?? 10;
+        box.difficulty = newQ.difficulty ?? 1;
         box.answered   = false;
         box.answeredBy = null;
         io.emit('box:questionrespawn', {
-          boxId:    data.boxId,
-          x:        pos.x,
-          z:        pos.z,
-          question: newQ.question,
-          answers:  newQ.answers,
-          pts:      newQ.pts ?? 10,
+          boxId:      data.boxId,
+          x:          pos.x,
+          z:          pos.z,
+          question:   newQ.question,
+          answers:    newQ.answers,
+          pts:        newQ.pts ?? 10,
+          difficulty: newQ.difficulty ?? 1,
         });
         console.log(`  [q-respawn] #${data.boxId} → (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`);
       }, RESPAWN_DELAY_QUESTION_MS);
@@ -371,12 +391,13 @@ io.on('connection', (socket) => {
       const correctAnswer = box.answers[box.correct];
       // Asignar nueva pregunta al box
       const newQ = pickQuestion(questionPool);
-      box.question = newQ.question;
-      box.answers  = newQ.answers;
-      box.correct  = newQ.correct;
-      box.pts      = newQ.pts ?? 10;
+      box.question   = newQ.question;
+      box.answers    = newQ.answers;
+      box.correct    = newQ.correct;
+      box.pts        = newQ.pts ?? 10;
+      box.difficulty = newQ.difficulty ?? 1;
       // Notificar a TODOS (la caja tiene nueva pregunta, sin revelar cuál es correcta)
-      io.emit('box:newquestion', { boxId: data.boxId, question: newQ.question, answers: newQ.answers });
+      io.emit('box:newquestion', { boxId: data.boxId, question: newQ.question, answers: newQ.answers, difficulty: newQ.difficulty ?? 1 });
       // Decir al jugador que falló + actualizar su puntuación
       socket.emit('box:answered', { boxId: data.boxId, playerId: socket.id, correct: false, correctAnswer, scores: scoreBoard() });
     }
@@ -432,6 +453,49 @@ io.on('connection', (socket) => {
     if (!msg) return;
     console.log(`  [ADMIN] broadcast: "${msg}"`);
     io.emit('admin:message', { text: msg, color: '#44ddff' });
+  });
+
+  // ── Bomba ─────────────────────────────────────────────────────────────────
+  socket.on('bomb:use', (data) => {
+    const p = players.get(socket.id);
+    if (!p || !p.hasBomb) return;
+
+    const targetId  = data.targetId;
+    const focusedId = focusedQuestionByPlayer.get(targetId);
+    if (focusedId === undefined) return; // el target no està responent
+
+    const box = gameBoxes.find(b => b.id === focusedId);
+    if (!box) return;
+
+    // Usar bomba
+    p.hasBomb     = false;
+    p.bombCharges = 0;
+    socket.emit('bomb:charge', { charges: 0 });
+
+    // Restar punts al target
+    const target = players.get(targetId);
+    if (target) { target.score += PTS_WRONG; target.wrongAnswers += 1; }
+
+    // Tancar diàleg del target i notificar
+    focusedQuestionByPlayer.delete(targetId);
+    io.to(targetId).emit('bomb:hit', { scores: scoreBoard() });
+
+    // Respawn del cofre a nova posició amb nova pregunta
+    const pos  = randPos(gameBoxes.filter(b => b.id !== box.id), 5);
+    const newQ = pickQuestion(questionPool);
+    box.x          = pos.x; box.z = pos.z;
+    box.question   = newQ.question; box.answers = newQ.answers;
+    box.correct    = newQ.correct;  box.pts = newQ.pts ?? 10;
+    box.difficulty = newQ.difficulty ?? 1;
+    box.answered   = false; box.answeredBy = null;
+
+    io.emit('box:questionrespawn', {
+      boxId: box.id, x: pos.x, z: pos.z,
+      question: newQ.question, answers: newQ.answers,
+      pts: newQ.pts ?? 10, difficulty: newQ.difficulty ?? 1,
+    });
+    io.emit('bomb:effect', { bomberId: socket.id, targetId, targetName: target?.name || '?', scores: scoreBoard() });
+    console.log(`  [BOMBA] ${socket.id.slice(0,6)} → ${targetId.slice(0,6)}`);
   });
 
   // ── Desconexión ───────────────────────────────────────────────────────────
