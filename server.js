@@ -342,8 +342,17 @@ io.on('connection', (socket) => {
     const box = gameBoxes.find(b => b.id === boxId);
     if (!box || box.type !== 'question' || box.answered) return;
 
-    if (open) focusedQuestionByPlayer.set(socket.id, boxId);
-    else if (focusedQuestionByPlayer.get(socket.id) === boxId) focusedQuestionByPlayer.delete(socket.id);
+    if (open) {
+      // Comprovar si un altre jugador ja té aquest cofre obert
+      const occupant = [...focusedQuestionByPlayer.entries()].find(([pid, bid]) => bid === boxId && pid !== socket.id);
+      if (occupant) {
+        socket.emit('box:locked', { boxId });  // rebutjar
+        return;
+      }
+      focusedQuestionByPlayer.set(socket.id, boxId);
+    } else if (focusedQuestionByPlayer.get(socket.id) === boxId) {
+      focusedQuestionByPlayer.delete(socket.id);
+    }
 
     socket.broadcast.emit('box:focus', { boxId, open });
   });
@@ -373,6 +382,8 @@ io.on('connection', (socket) => {
     if (!box || box.type !== 'question' || box.answered) return;
     const p = players.get(socket.id);
     if (!p) return;
+    // Només pot respondre qui té el cofre obert
+    if (focusedQuestionByPlayer.get(socket.id) !== data.boxId) return;
 
     const correct     = data.answerIndex === box.correct;
     const answerGiven = box.answers[data.answerIndex] ?? '?';

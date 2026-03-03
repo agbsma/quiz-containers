@@ -1179,6 +1179,13 @@ socket.on('box:focus', (d) => {
   setQuestionChestGlow(d.boxId, !!d.open);
 });
 
+socket.on('box:locked', (d) => {
+  // El cofre ja està ocupat per un altre jugador
+  if (dialogOpen && activeQuestion === d.boxId) closeDialog();
+  setQuestionChestGlow(d.boxId, false);
+  showMsg('Cofre ocupat!', '#ff8844');
+});
+
 socket.on('player:move', (d) => {
   const p = otherPlayers.get(d.id);
   if (!p) return;
