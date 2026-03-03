@@ -321,7 +321,7 @@ function startGame() {
   scoreboardEl.style.display = 'block';
   forcaHud.style.display = 'flex';
   overlay.classList.add('visible');
-  overlayTitle.textContent = `Hola, ${myName}`;
+  overlayTitle.textContent = `BENVINGUT, ${myName}!`;
   gameStarted = true;
   setForca(0);
   createLocalAvatar();
