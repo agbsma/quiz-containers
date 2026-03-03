@@ -520,11 +520,6 @@ function applyDifficultyColor(root, difficulty) {
     if (!child.isMesh) return;
     const mats = Array.isArray(child.material) ? child.material : [child.material];
     mats.forEach((mat, i) => {
-      // Detectar parts vermelloses: R dominant, G i B baixos
-      console.log('[DIFF] mat:', mat.name, 'r:', mat.color.r.toFixed(2), 'g:', mat.color.g.toFixed(2), 'b:', mat.color.b.toFixed(2), 'hasMap:', !!mat.map);
-      if (mat.color.r < 0.35) return;
-      if (mat.color.r < mat.color.g * 1.3) return;
-      if (mat.color.r < mat.color.b * 1.3) return;
       const m = mat.clone();
       m.color.set(col);
       if (Array.isArray(child.material)) child.material[i] = m;
