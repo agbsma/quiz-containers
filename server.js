@@ -200,21 +200,20 @@ function writeSessionLog() {
 
 function writeResultsLog(winnerName, winnerScore) {
   const ts   = sessionTimestamp();
-  const file = path.join(LOGS_DIR, `resultats_${ts}.log`);
+  const file = path.join(LOGS_DIR, `resultats_${ts}.csv`);
   const now  = fmtDate(new Date());
 
   const sorted = Array.from(players.values())
     .sort((a, b) => b.score - a.score);
 
-  let content = `Data/Hora: ${now}\n`;
-  content    += `Guanyador: ${winnerName} (${winnerScore} punts)\n`;
-  content    += `${'─'.repeat(60)}\n`;
-  content    += `${'Jugador'.padEnd(22)} ${'Punts'.padStart(6)}  ${'OK'.padStart(4)}  ${'KO'.padStart(4)}\n`;
-  content    += `${'─'.repeat(60)}\n`;
+  let content = `Data/Hora,Guanyador,Punts\n`;
+  content    += `${now},${winnerName},${winnerScore}\n`;
+  content    += `\n`;
+  content    += `Jugador,Punts,OK,KO\n`;
   for (const p of sorted) {
-    content += `${(p.name || p.id.slice(0,6)).padEnd(22)} ${String(p.score).padStart(6)}  ${String(p.correctAnswers||0).padStart(4)}  ${String(p.wrongAnswers||0).padStart(4)}\n`;
+    const name = (p.name || p.id.slice(0,6)).replace(/,/g, ' ');
+    content += `${name},${p.score},${p.correctAnswers||0},${p.wrongAnswers||0}\n`;
   }
-  content += `${'─'.repeat(60)}\n`;
 
   try { fs.writeFileSync(file, content, 'utf8'); console.log(`  [LOG] resultats escrits → ${file}`); }
   catch (e) { console.error('  [LOG] Error escribiendo resultats:', e.message); }
