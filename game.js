@@ -24,6 +24,8 @@ const crosshair        = document.getElementById('crosshair');
 const hud              = document.getElementById('hud');
 const scoreboardEl     = document.getElementById('scoreboard');
 const myScoreEl        = document.getElementById('myScore');
+const hudNameEl        = document.getElementById('hudName');
+const hudStatsEl       = document.getElementById('hudStats');
 const sbListEl         = document.getElementById('sbList');
 const forcaHud         = document.getElementById('forcaHud');
 const forcaDots        = [document.getElementById('dot0'), document.getElementById('dot1'), document.getElementById('dot2')];
@@ -188,7 +190,15 @@ let myId    = null;
 let myColor = '#ffffff';
 let myScore = 0;
 let myName  = '';
+let myCorrect = 0;
+let myWrong   = 0;
 const otherPlayers = new Map();
+
+function updateMyHud() {
+  if (myScoreEl)  myScoreEl.textContent  = myScore;
+  if (hudNameEl)  hudNameEl.textContent  = myName || '—';
+  if (hudStatsEl) hudStatsEl.textContent = `${myCorrect} / ${myWrong}`;
+}
 
 // ─── CAIXES ──────────────────────────────────────────────────────────────────
 
@@ -339,7 +349,8 @@ function startGame() {
   loadOverlay.style.display = 'none';
   renderer.domElement.style.display = 'block';
   crosshair.style.display = 'block';
-  hud.style.display = 'none';   // Puntuació pròpia oculta (es veu al marcador dret)
+  hud.style.display = 'block';
+  updateMyHud();
   scoreboardEl.style.display = 'block';
   forcaHud.style.display = 'flex';
   bombaHud.style.display = 'flex';
@@ -1141,6 +1152,12 @@ function updateScoreboard(scores) {
     const label = s.id===myId ? `<b>${myName||'Tu'}</b>` : (s.name||s.id.slice(0,5));
     row.innerHTML = `<span>${dot}${label}</span><span class="sb-pts">${s.score}</span>`;
     sbListEl.appendChild(row);
+    if (s.id === myId) {
+      myScore   = s.score;
+      myCorrect = s.correct ?? myCorrect;
+      myWrong   = s.wrong   ?? myWrong;
+      updateMyHud();
+    }
   });
 }
 
@@ -1168,9 +1185,12 @@ socket.on('player:name',   (d) => {
 socket.on('score:update', (d) => updateScoreboard(d.scores));
 
 socket.on('score:restore', (d) => {
-  myScore = d.score ?? 0;
+  myScore   = d.score   ?? 0;
+  myCorrect = d.correct ?? 0;
+  myWrong   = d.wrong   ?? 0;
   setBombaCharges(d.bombCharges ?? 0);
   if (d.hasBomb) setBombaCharges(3);
+  updateMyHud();
   showBigFeedback('Puntuació restaurada', `${myScore} pts recuperats`, '#44ddff');
 });
 
@@ -1432,10 +1452,10 @@ function setKey(e, val) {
 }
 window.addEventListener('keydown', (e) => {
   setKey(e, true);
-  if (e.code==='Space') {
+  if (e.code==='Space' && document.activeElement?.tagName !== 'INPUT') {
     e.preventDefault();
   }
-  if (e.code==='KeyQ') {
+  if (e.code==='KeyQ' && document.activeElement?.tagName !== 'INPUT') {
     e.preventDefault();
   }
 
@@ -1618,7 +1638,8 @@ socket.on('admin:message', (d) => {
 });
 
 socket.on('admin:gamestart', (d) => {
-  myScore = 0;
+  myScore = 0; myCorrect = 0; myWrong = 0;
+  updateMyHud();
   if (d.scores) updateScoreboard(d.scores);
   showBigFeedback('Comença el joc!', '', '#44ff88');
 });

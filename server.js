@@ -262,10 +262,12 @@ function writeResultsLog(winnerName, winnerScore) {
 
 function scoreBoard() {
   return Array.from(players.values()).map(p => ({
-    id:    p.id,
-    color: p.color,
-    name:  p.name,
-    score: p.score,
+    id:      p.id,
+    color:   p.color,
+    name:    p.name,
+    score:   p.score,
+    correct: p.correctAnswers,
+    wrong:   p.wrongAnswers,
   }));
 }
 
@@ -314,7 +316,7 @@ io.on('connection', (socket) => {
       p.wrongAnswers = s.wrongAnswers; p.bombCharges = s.bombCharges;
       p.hasBomb = s.hasBomb;
       console.log(`  [SCORES] Restaurat ${p.name}: ${p.score} pts`);
-      socket.emit('score:restore', { score: p.score, bombCharges: p.bombCharges, hasBomb: p.hasBomb });
+      socket.emit('score:restore', { score: p.score, correct: p.correctAnswers, wrong: p.wrongAnswers, bombCharges: p.bombCharges, hasBomb: p.hasBomb });
     }
     socket.broadcast.emit('player:name', { id: socket.id, name: p.name });
     io.emit('score:update', { scores: scoreBoard() });

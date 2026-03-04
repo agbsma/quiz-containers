@@ -116,13 +116,20 @@
         border-radius: 50%; pointer-events: none; z-index: 5; display: none;
       }
 
-      /* ── HUD punts ───────────────────────────────────────────── */
+      /* ── HUD jugador ─────────────────────────────────────────── */
       #hud {
         position: fixed; top: 14px; left: 14px;
-        color: #fff; font-size: 15px; z-index: 5;
-        text-shadow: 1px 1px 3px #000; pointer-events: none; display: none;
+        background: rgba(0,0,0,0.50); border: 1px solid rgba(255,255,255,0.15);
+        border-radius: 8px; padding: 8px 14px; z-index: 5;
+        color: #fff; font-size: 13px; line-height: 1.7;
+        text-shadow: 1px 1px 2px #000; pointer-events: none; display: none;
+        min-width: 150px;
       }
-      #hud span { font-weight: bold; color: #ffdd44; }
+      #hud .hud-row { display: flex; justify-content: space-between; gap: 12px; }
+      #hud .hud-label { opacity: .7; font-size: 11px; text-transform: uppercase; }
+      #hud .hud-val { font-weight: bold; color: #ffdd44; }
+      #hud .hud-val.name { color: #88ccff; font-size: 14px; }
+      #hud .hud-sep { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 4px 0; }
 
       /* ── Classificació ───────────────────────────────────────── */
       #scoreboard {
@@ -424,7 +431,12 @@
 
     <!-- HUD -->
     <div id="crosshair"></div>
-    <div id="hud">Punts: <span id="myScore">0</span></div>
+    <div id="hud">
+      <div class="hud-row"><span class="hud-label">Jugador</span><span class="hud-val name" id="hudName">—</span></div>
+      <hr class="hud-sep">
+      <div class="hud-row"><span class="hud-label">Puntuació</span><span class="hud-val" id="myScore">0</span></div>
+      <div class="hud-row"><span class="hud-label">Encerts / Errors</span><span class="hud-val" id="hudStats">0 / 0</span></div>
+    </div>
     <div id="scoreboard">
       <h3>Classificació</h3>
       <div id="sbList"></div>
