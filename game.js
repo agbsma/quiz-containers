@@ -1354,12 +1354,14 @@ function getForward() { camera.getWorldDirection(fwdVec); fwdVec.y=0; fwdVec.nor
 function getRight()   { camera.getWorldDirection(rightVec); rightVec.y=0; rightVec.normalize(); rightVec.cross(camera.up); return rightVec; }
 
 function playerCollisions() {
-  const r = worldOctree.capsuleIntersect(playerCollider);
   playerOnFloor = false;
-  if (!r) return;
-  playerOnFloor = r.normal.y > 0;
-  if (!playerOnFloor) playerVel.addScaledVector(r.normal, -r.normal.dot(playerVel));
-  playerCollider.translate(r.normal.multiplyScalar(r.depth));
+  for (let i = 0; i < 5; i++) {   // múltiples iteracions per resoldre cantonades
+    const r = worldOctree.capsuleIntersect(playerCollider);
+    if (!r) break;
+    if (r.normal.y > 0) playerOnFloor = true;
+    if (!playerOnFloor) playerVel.addScaledVector(r.normal, -r.normal.dot(playerVel));
+    playerCollider.translate(r.normal.multiplyScalar(r.depth + 0.001));
+  }
 }
 
 function updateMovement(dt) {
@@ -1425,7 +1427,7 @@ function updateParticles(dt) {
 // ─── LOOP PRINCIPAL ──────────────────────────────────────────────────────────
 
 function animate() {
-  const dt = clock.getDelta();
+  const dt = Math.min(clock.getDelta(), 0.05); // clamp: màx 50ms per evitar tunneling per lag
   const t  = clock.elapsedTime;
   updateMovement(dt);
   updateParticles(dt);
