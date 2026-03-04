@@ -285,7 +285,7 @@ io.on('connection', (socket) => {
   colorIdx++;
 
   const player = {
-    id: socket.id, color, name: '', position: { x: 2.14, y: 1.48, z: -1.36 },
+    id: socket.id, color, name: '', position: { x: 23, y: 1.48, z: 15 },
     rotation: 0, score: 0, correctAnswers: 0, wrongAnswers: 0,
     bombCharges: 0, hasBomb: false,
   };

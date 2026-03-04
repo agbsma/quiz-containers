@@ -118,7 +118,7 @@ const BREAK_HIT_DELAY_MS = 200;
 const QUESTION_OPEN_DELAY_MS = 800;
 const DEATH_LOCK_MS = 10000;
 const VALID_FLOOR_Y = 1.2;
-const FALLBACK_SPAWN = new THREE.Vector3(2.14, 1.48, -1.36);
+const FALLBACK_SPAWN = new THREE.Vector3(23, 1.48, 15);  // centre de BOUNDS
 
 // ─── ESTAT DEL JUGADOR ───────────────────────────────────────────────────────
 
