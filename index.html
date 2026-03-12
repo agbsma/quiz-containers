@@ -34,10 +34,16 @@
         width: 100%; padding: 10px 12px; font-size: 16px;
         background: rgba(255,255,255,0.1);
         border: 1px solid rgba(255,255,255,0.3); color: #fff;
-        outline: none; margin-bottom: 14px; text-align: center;
+        outline: none; margin-bottom: 4px; text-align: center;
+        box-sizing: border-box;
       }
       #playerNameInput:focus { border-color: #88ff88; }
       #playerNameInput:disabled { opacity: .4; }
+      #playerNameInput.invalid { border-color: #ff6666; }
+      #emailError {
+        font-size: 12px; color: #ff8888; margin-bottom: 10px;
+        min-height: 16px; text-align: center;
+      }
       #enterGameBtn {
         width: 100%; padding: 11px; font-size: 15px;
         border: 1px solid rgba(255,255,255,0.5);
@@ -382,9 +388,10 @@
     <div id="loadOverlay">
       <div id="loadPanel">
         <h2>Quiz Containers</h2>
-        <p>Introdueix el teu nom per entrar</p>
-        <input id="playerNameInput" type="text" maxlength="20"
-               placeholder="El teu nom..." autocomplete="off" disabled />
+        <p>Escriu el teu correu electrònic de l'escola</p>
+        <input id="playerNameInput" type="text" maxlength="60"
+               placeholder="nom.cognom@smapostols.org" autocomplete="off" disabled />
+        <div id="emailError"></div>
         <button id="enterGameBtn" disabled>Entrant...</button>
         <div id="loadStatus">Carregant escenari...</div>
       </div>

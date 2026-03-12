@@ -16,6 +16,26 @@ const loadOverlay      = document.getElementById('loadOverlay');
 const playerNameInput  = document.getElementById('playerNameInput');
 const enterGameBtn     = document.getElementById('enterGameBtn');
 const loadStatus       = document.getElementById('loadStatus');
+const emailError       = document.getElementById('emailError');
+
+// ─── VALIDACIÓ CORREU ─────────────────────────────────────────────────────────
+// Admet: paraula.paraula@smapostols.org  (lletres, accents, guions)
+// O bé:  admin  (accés directe sense correu)
+const EMAIL_RE = /^[a-zA-Z\u00C0-\u017E\-]+\.[a-zA-Z\u00C0-\u017E\-]+@smapostols\.org$/i;
+
+function parseEmailInput(raw) {
+  const val = raw.trim().toLowerCase();
+  if (val === 'admin') {
+    return { valid: true, name: 'Admin', email: 'admin', admin: true };
+  }
+  if (EMAIL_RE.test(val)) {
+    const local = val.split('@')[0];          // "joan.puig"
+    const parts = local.split('.');           // ["joan","puig"]
+    const name  = parts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+    return { valid: true, name, email: val, admin: false };
+  }
+  return { valid: false };
+}
 
 const overlay          = document.getElementById('overlay');
 const overlayTitle     = document.getElementById('overlayTitle');
@@ -189,6 +209,8 @@ let myId    = null;
 let myColor = '#ffffff';
 let myScore = 0;
 let myName  = '';
+let myEmail = '';
+let isAdmin = false;
 let myCorrect = 0;
 let myWrong   = 0;
 const otherPlayers = new Map();
@@ -297,12 +319,13 @@ function placePlayerAtCenter(lvl) {
 
 function onLevelReady() {
   levelReady = true;
-  loadStatus.textContent = 'Llest! Escriu el teu nom';
+  loadStatus.textContent = 'Llest! Escriu el teu correu';
   loadStatus.classList.add('ready');
   playerNameInput.disabled = false;
-  // El botó resta desactivat fins que s'escrigui un nom
-  enterGameBtn.disabled    = true;
   enterGameBtn.textContent = 'Entrar al joc';
+  // Si ja hi ha un valor pre-omplert des de localStorage, valida-ho ara
+  if (playerNameInput.value) validateAndUpdateBtn();
+  else enterGameBtn.disabled = true;
   playerNameInput.focus();
   placePendingBoxes();
 }
@@ -341,10 +364,31 @@ function loadLevel() {
 
 // ─── PANTALLA DE CÀRREGA ─────────────────────────────────────────────────────
 
+function validateAndUpdateBtn() {
+  const parsed = parseEmailInput(playerNameInput.value);
+  if (!playerNameInput.value.trim()) {
+    emailError.textContent = '';
+    playerNameInput.classList.remove('invalid');
+    enterGameBtn.disabled = true;
+  } else if (parsed.valid) {
+    emailError.textContent = '';
+    playerNameInput.classList.remove('invalid');
+    enterGameBtn.disabled = !levelReady;
+  } else {
+    emailError.textContent = 'Format incorrecte. Exemple: joan.puig@smapostols.org';
+    playerNameInput.classList.add('invalid');
+    enterGameBtn.disabled = true;
+  }
+}
+
 function startGame() {
-  myName = playerNameInput.value.trim() || 'Jugador';
-  localStorage.setItem('quizPlayerName', myName);
-  socket.emit('player:name', { name: myName });
+  const parsed = parseEmailInput(playerNameInput.value);
+  if (!parsed.valid) return;
+  myName  = parsed.name;
+  myEmail = parsed.email;
+  isAdmin = parsed.admin;
+  localStorage.setItem('quizPlayerEmail', parsed.email);
+  socket.emit('player:name', { name: myName, email: myEmail });
 
   loadOverlay.style.display = 'none';
   renderer.domElement.style.display = 'block';
@@ -362,22 +406,24 @@ function startGame() {
   createLocalAvatar();
 }
 
-// Pre-omplir nom des de localStorage si existeix
-const savedPlayerName = localStorage.getItem('quizPlayerName');
-if (savedPlayerName) {
-  playerNameInput.value = savedPlayerName;
-  enterGameBtn.disabled = false;
+// Pre-omplir correu des de localStorage si existeix
+const savedPlayerEmail = localStorage.getItem('quizPlayerEmail');
+if (savedPlayerEmail) {
+  playerNameInput.value = savedPlayerEmail;
+  // No habilitem el botó fins que l'escenari estigui carregat (validateAndUpdateBtn ho farà)
 }
 
 enterGameBtn.addEventListener('click', () => {
-  if (!levelReady || !playerNameInput.value.trim()) return;
+  if (!levelReady) return;
+  const parsed = parseEmailInput(playerNameInput.value);
+  if (!parsed.valid) return;
   startGame();
 });
 playerNameInput.addEventListener('input', () => {
-  enterGameBtn.disabled = !playerNameInput.value.trim() || !levelReady;
+  validateAndUpdateBtn();
 });
 playerNameInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && levelReady && playerNameInput.value.trim()) startGame();
+  if (e.key === 'Enter' && levelReady) { const p = parseEmailInput(playerNameInput.value); if (p.valid) startGame(); }
 });
 
 // ─── MODEL PERSONATGE (RobotExpressive) ──────────────────────────────────────
@@ -1544,7 +1590,7 @@ window.addEventListener('resize', () => {
 
 window.addEventListener('keydown', (e) => {
   if (!e.ctrlKey || !e.altKey || !e.shiftKey) return;
-  if (!gameStarted) return;
+  if (!gameStarted || !isAdmin) return;
 
   if (e.code === 'KeyP') {
     e.preventDefault();

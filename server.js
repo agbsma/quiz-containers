@@ -248,10 +248,11 @@ function writeResultsLog(winnerName, winnerScore) {
   let content = `Data/Hora,Guanyador,Punts\n`;
   content    += `${now},${winnerName},${winnerScore}\n`;
   content    += `\n`;
-  content    += `Jugador,Punts,OK,KO\n`;
+  content    += `Jugador,Correu,Punts,OK,KO\n`;
   for (const p of sorted) {
-    const name = (p.name || p.id.slice(0,6)).replace(/,/g, ' ');
-    content += `${name},${p.score},${p.correctAnswers||0},${p.wrongAnswers||0}\n`;
+    const name  = (p.name  || p.id.slice(0,6)).replace(/,/g, ' ');
+    const email = (p.email || '').replace(/,/g, ' ');
+    content += `${name},${email},${p.score},${p.correctAnswers||0},${p.wrongAnswers||0}\n`;
   }
 
   try { fs.writeFileSync(file, content, 'utf8'); console.log(`  [LOG] resultats escrits → ${file}`); }
@@ -285,7 +286,7 @@ io.on('connection', (socket) => {
   colorIdx++;
 
   const player = {
-    id: socket.id, color, name: '', position: { x: 23, y: 1.48, z: 15 },
+    id: socket.id, color, name: '', email: '', position: { x: 23, y: 1.48, z: 15 },
     rotation: 0, score: 0, correctAnswers: 0, wrongAnswers: 0,
     bombCharges: 0, hasBomb: false,
   };
@@ -308,7 +309,8 @@ io.on('connection', (socket) => {
   socket.on('player:name', (data) => {
     const p = players.get(socket.id);
     if (!p) return;
-    p.name = (data.name || '').slice(0, 20).trim() || `J${socket.id.slice(0,4)}`;
+    p.name  = (data.name  || '').slice(0, 40).trim() || `J${socket.id.slice(0,4)}`;
+    p.email = (data.email || '').slice(0, 80).trim();
     // Restaurar puntuació guardada si existeix
     if (savedScores[p.name]) {
       const s = savedScores[p.name];
