@@ -44,7 +44,6 @@ const dialogOverlay    = document.getElementById('dialogOverlay');
 const dialogQuestion   = document.getElementById('dialogQuestion');
 const dialogAnswers    = document.querySelectorAll('.ans-btn');
 const dialogFeedback   = document.getElementById('dialogFeedback');
-const btnCancelar      = document.getElementById('btnCancelar');
 
 // ─── TEXTURAS DE CAIXA ───────────────────────────────────────────────────────
 
@@ -1116,7 +1115,6 @@ function submitAnswer(answerIndex) {
 dialogAnswers.forEach((btn) => {
   btn.addEventListener('click', () => submitAnswer(parseInt(btn.dataset.idx)));
 });
-btnCancelar.addEventListener('click', closeDialog);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && dialogOpen) closeDialog();
 });
