@@ -1560,7 +1560,7 @@ window.addEventListener('keydown', (e) => {
     controls.unlock();
     const msg = window.prompt('Quin missatge vols enviar?', '');
     if (msg && msg.trim()) socket.emit('admin:broadcast', { text: msg.trim() });
-  } else if (e.code === 'Comma') {
+  } else if (e.code === 'KeyY') {
     e.preventDefault();
     if (window.confirm('⚠️ HARD RESET: esborra tots els jugadors i reinicia el joc?')) {
       socket.emit('admin:hardreset');
