@@ -343,6 +343,7 @@ function loadLevel() {
 
 function startGame() {
   myName = playerNameInput.value.trim() || 'Jugador';
+  localStorage.setItem('quizPlayerName', myName);
   socket.emit('player:name', { name: myName });
 
   loadOverlay.style.display = 'none';
@@ -359,6 +360,13 @@ function startGame() {
   gameStarted = true;
   setForca(0);
   createLocalAvatar();
+}
+
+// Pre-omplir nom des de localStorage si existeix
+const savedPlayerName = localStorage.getItem('quizPlayerName');
+if (savedPlayerName) {
+  playerNameInput.value = savedPlayerName;
+  enterGameBtn.disabled = false;
 }
 
 enterGameBtn.addEventListener('click', () => {
@@ -1168,6 +1176,8 @@ socket.on('init', (data) => {
   if (levelReady) data.boxes.forEach(createBoxMesh);
   else pendingBoxes = data.boxes;
   updateScoreboard(data.scores);
+  // Re-envia el nom si ja el teníem (reconnexió o canvi de socket)
+  if (myName) socket.emit('player:name', { name: myName });
 });
 
 socket.on('player:add',    (d) => addOtherPlayer(d.id, d.color, d.position, d.rotation, d.name));
@@ -1550,7 +1560,17 @@ window.addEventListener('keydown', (e) => {
     controls.unlock();
     const msg = window.prompt('Quin missatge vols enviar?', '');
     if (msg && msg.trim()) socket.emit('admin:broadcast', { text: msg.trim() });
+  } else if (e.code === 'Comma') {
+    e.preventDefault();
+    if (window.confirm('⚠️ HARD RESET: esborra tots els jugadors i reinicia el joc?')) {
+      socket.emit('admin:hardreset');
+    }
   }
+});
+
+// Hard reset: el servidor demana a tots els clients que recarreguin
+socket.on('admin:hardreset', () => {
+  window.location.reload();
 });
 
 // ─── DEATH EFFECT (reutilitzable per fallo i bomba) ───────────────────────────

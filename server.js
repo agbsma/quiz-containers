@@ -376,6 +376,22 @@ io.on('connection', (socket) => {
       io.emit('box:respawn', { boxId: data.boxId, x: pos.x, z: pos.z });
       console.log(`  [respawn] #${data.boxId} → (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`);
     }, RESPAWN_DELAY_BREAK_MS);
+
+    // Si queden < 25 caixes verdes actives, respawn extra d'una altra caixa trencada
+    const activeBreakable = gameBoxes.filter(b => b.type === 'breakable' && !b.broken).length;
+    if (activeBreakable < 25) {
+      const extraBroken = gameBoxes.find(b => b.type === 'breakable' && b.broken && b.id !== data.boxId);
+      if (extraBroken) {
+        setTimeout(() => {
+          const pos2 = randPos(gameBoxes.filter(b => b.id !== extraBroken.id), 3);
+          extraBroken.x      = pos2.x;
+          extraBroken.z      = pos2.z;
+          extraBroken.broken = false;
+          io.emit('box:respawn', { boxId: extraBroken.id, x: pos2.x, z: pos2.z });
+          console.log(`  [respawn-extra] #${extraBroken.id} → (${pos2.x.toFixed(1)}, ${pos2.z.toFixed(1)}) (actives<25)`);
+        }, RESPAWN_DELAY_BREAK_MS + 1500);
+      }
+    }
   });
 
   // ── Responder pregunta ────────────────────────────────────────────────────
@@ -511,6 +527,16 @@ io.on('connection', (socket) => {
     if (!msg) return;
     console.log(`  [ADMIN] broadcast: "${msg}"`);
     io.emit('admin:message', { text: msg, color: '#44ddff' });
+  });
+
+  // Ctrl+Alt+Shift+, → Hard reset: tots els clients recarreguen i es reinicia l'estat
+  socket.on('admin:hardreset', async () => {
+    console.log(`  [ADMIN] HARD RESET per ${socket.id.slice(0,6)}`);
+    io.emit('admin:hardreset'); // força recàrrega a tots els clients
+    await resetGame();
+    setTimeout(() => {
+      io.disconnectSockets(true); // desconnecta tots els sockets actuals
+    }, 800);
   });
 
   // ── Bomba ─────────────────────────────────────────────────────────────────
