@@ -319,10 +319,10 @@ function placePlayerAtCenter(lvl) {
 
 function onLevelReady() {
   levelReady = true;
-  loadStatus.textContent = 'Llest! Escriu el teu correu';
+  loadStatus.textContent = 'Llest! Escriu el teu correu de l\'escola';
   loadStatus.classList.add('ready');
   playerNameInput.disabled = false;
-  enterGameBtn.textContent = 'Entrar al joc';
+  enterGameBtn.textContent = 'Entrar';
   // Si ja hi ha un valor pre-omplert des de localStorage, valida-ho ara
   if (playerNameInput.value) validateAndUpdateBtn();
   else enterGameBtn.disabled = true;
