@@ -39,7 +39,7 @@ function parseEmailInput(raw) {
 
 const overlay          = document.getElementById('overlay');
 const overlayTitle     = document.getElementById('overlayTitle');
-const startBtn         = document.getElementById('startBtn');
+// startBtn removed — overlay closes with , + . keys
 const crosshair        = document.getElementById('crosshair');
 const hud              = document.getElementById('hud');
 const scoreboardEl     = document.getElementById('scoreboard');
@@ -1575,7 +1575,23 @@ renderer.domElement.addEventListener('mousedown', (e) => {
   if (e.button === 2) onRightClick();
 });
 
-startBtn.addEventListener('click', () => { renderer.domElement.focus(); controls.lock(); });
+// Close overlay with , + . pressed simultaneously
+const _commaDown = { v: false };
+const _periodDown = { v: false };
+function tryCloseOverlay() {
+  if (_commaDown.v && _periodDown.v && overlay.classList.contains('visible') && gameStarted) {
+    renderer.domElement.focus();
+    controls.lock();
+  }
+}
+window.addEventListener('keydown', (e) => {
+  if (e.key === ',') { _commaDown.v = true; tryCloseOverlay(); }
+  if (e.key === '.') { _periodDown.v = true; tryCloseOverlay(); }
+});
+window.addEventListener('keyup', (e) => {
+  if (e.key === ',') _commaDown.v = false;
+  if (e.key === '.') _periodDown.v = false;
+});
 
 controls.addEventListener('lock',   () => { overlay.classList.remove('visible'); });
 controls.addEventListener('unlock', () => { if (!dialogOpen && gameStarted) overlay.classList.add('visible'); });
