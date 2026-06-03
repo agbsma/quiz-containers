@@ -30,6 +30,9 @@ const RESPAWN_DELAY_BREAK_MS    = 5000;   // segons per respawn caixa verda tren
 const RESPAWN_DELAY_QUESTION_MS = 2000;   // segons per respawn caixa de pregunta
 const NUM_BREAKABLE             = 45;     // caixes verdes
 const NUM_QUESTIONS             = 23;     // caixes de preguntes
+const NUM_GOLDEN                = 4;      // cofres daurats
+const LOWER_ZONE_MULTIPLIER     = 3;      // triple de cofres a la zona baixa
+const LOWER_BOUNDS              = { minX: -40, maxX: 90, minZ: -50, maxZ: 70 };
 const PTS_BY_DIFF      = { 1: 5, 2: 10, 3: 15, 4: 20, 5: 25 };
 const PTS_WRONG        = -5;
 
@@ -115,20 +118,44 @@ async function loadQuestions() {
 
 // ─── GENERACIÓN DE CAJAS ─────────────────────────────────────────────────────
 
-function randPos(existing, minDist) {
+function randPos(existing, minDist, bounds = BOUNDS) {
   for (let i = 0; i < 80; i++) {
-    const x = BOUNDS.minX + Math.random() * (BOUNDS.maxX - BOUNDS.minX);
-    const z = BOUNDS.minZ + Math.random() * (BOUNDS.maxZ - BOUNDS.minZ);
+    const x = bounds.minX + Math.random() * (bounds.maxX - bounds.minX);
+    const z = bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ);
     if (existing.every(b => Math.hypot(b.x - x, b.z - z) >= minDist)) return { x, z };
   }
   return {
-    x: BOUNDS.minX + Math.random() * (BOUNDS.maxX - BOUNDS.minX),
-    z: BOUNDS.minZ + Math.random() * (BOUNDS.maxZ - BOUNDS.minZ),
+    x: bounds.minX + Math.random() * (bounds.maxX - bounds.minX),
+    z: bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ),
   };
 }
 
 function pickQuestion(pool) {
   return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function generateLowerZoneBoxes(questionPool) {
+  const lowerBoxes = [];
+  const basePool = questionPool.length ? questionPool : FALLBACK_QUESTIONS;
+  let id = gameBoxes.reduce((m, b) => Math.max(m, b.id + 1), 0);
+
+  for (let i = 0; i < NUM_BREAKABLE * LOWER_ZONE_MULTIPLIER; i++) {
+    const pos = randPos(lowerBoxes, 3, LOWER_BOUNDS);
+    lowerBoxes.push({ id: id++, type: 'breakable', x: pos.x, z: pos.z, broken: false, lowerZone: true });
+  }
+
+  const numQ = Math.min(basePool.length, NUM_QUESTIONS * LOWER_ZONE_MULTIPLIER);
+  for (let i = 0; i < numQ; i++) {
+    const pos = randPos(lowerBoxes, 5, LOWER_BOUNDS);
+    const q = basePool[i % basePool.length];
+    lowerBoxes.push({
+      id: id++, type: 'question', x: pos.x, z: pos.z,
+      question: q.question, answers: q.answers, correct: q.correct,
+      pts: (q.pts ?? 10) * 2, difficulty: q.difficulty ?? 1,
+      answered: false, answeredBy: null, lowerZone: true,
+    });
+  }
+  return lowerBoxes;
 }
 
 function generateBoxes(questionPool) {
@@ -139,6 +166,12 @@ function generateBoxes(questionPool) {
   for (let i = 0; i < NUM_BREAKABLE; i++) {
     const pos = randPos(boxes, 3);
     boxes.push({ id: id++, type: 'breakable', x: pos.x, z: pos.z, broken: false });
+  }
+
+  // Cofres daurats (4 en total)
+  for (let i = 0; i < NUM_GOLDEN; i++) {
+    const pos = randPos(boxes, 6);
+    boxes.push({ id: id++, type: 'golden', x: pos.x, z: pos.z, opened: false });
   }
 
   // Cajas de preguntas (una por cada pregunta del pool, máx NUM_QUESTIONS)
@@ -161,6 +194,14 @@ function generateBoxes(questionPool) {
 function boxForClient(b) {
   const { correct, ...safe } = b;
   return safe;
+}
+
+function ensureLowerZoneBoxes() {
+  if (gameBoxes.some(b => b.lowerZone)) return gameBoxes.filter(b => b.lowerZone);
+  const extra = generateLowerZoneBoxes(questionPool);
+  gameBoxes.push(...extra);
+  io.emit('game:lowerzone', { boxes: extra.map(boxForClient) });
+  return extra;
 }
 
 // ─── SCORES PERSISTENTS ──────────────────────────────────────────────────────
@@ -288,7 +329,7 @@ io.on('connection', (socket) => {
   const player = {
     id: socket.id, color, name: '', email: '', position: { x: 23, y: 1.48, z: 15 },
     rotation: 0, score: 0, correctAnswers: 0, wrongAnswers: 0,
-    bombCharges: 0, hasBomb: false,
+    bombCharges: 0, hasBomb: false, correctStreak: 0, hp: 10,
   };
   players.set(socket.id, player);
   console.log(`[+] Conectado ${socket.id.slice(0,6)}  (${players.size} jugadores)`);
@@ -300,6 +341,8 @@ io.on('connection', (socket) => {
     players: Array.from(players.values()).filter(p => p.id !== socket.id),
     boxes:   gameBoxes.map(boxForClient),
     scores:  scoreBoard(),
+    streak:  player.correctStreak || 0,
+    hp:      player.hp || 10,
   });
 
   // Notificar al resto
@@ -316,7 +359,7 @@ io.on('connection', (socket) => {
       const s = savedScores[p.name];
       p.score = s.score; p.correctAnswers = s.correctAnswers;
       p.wrongAnswers = s.wrongAnswers; p.bombCharges = s.bombCharges;
-      p.hasBomb = s.hasBomb;
+      p.hasBomb = s.hasBomb; p.correctStreak = p.correctAnswers || 0;
       console.log(`  [SCORES] Restaurat ${p.name}: ${p.score} pts`);
       socket.emit('score:restore', { score: p.score, correct: p.correctAnswers, wrong: p.wrongAnswers, bombCharges: p.bombCharges, hasBomb: p.hasBomb });
     }
@@ -397,6 +440,41 @@ io.on('connection', (socket) => {
   });
 
   // ── Responder pregunta ────────────────────────────────────────────────────
+  socket.on('golden:open', (data) => {
+    const p = players.get(socket.id);
+    if (!p || (p.correctStreak || 0) < 5) return;
+    const box = gameBoxes.find(b => b.id === Number(data?.boxId) && b.type === 'golden');
+    if (!box) return;
+    const extra = ensureLowerZoneBoxes();
+    io.to(socket.id).emit('player:teleport', { x: 23, y: -98, z: 15 });
+    io.emit('score:update', { scores: scoreBoard() });
+    console.log(`  [GOLDEN] ${socket.id.slice(0,6)} ha obert un cofre daurat → zona baixa (${extra.length} cofres)`);
+  });
+
+  socket.on('player:hit', (data) => {
+    const attacker = players.get(socket.id);
+    const target = players.get(data?.targetId);
+    if (!attacker || !target) return;
+    if (target.position.y < -50 || attacker.position.y < -50) {
+      target.hp = Math.max(0, (target.hp || 10) - 1);
+      io.to(target.id).emit('player:hp', { hp: target.hp, targetId: target.id });
+      if (target.hp <= 0) {
+        target.hp = 10;
+        target.position = { x: 23, y: 1.48, z: 15 };
+        io.to(target.id).emit('player:teleport', { x: 23, y: 1.48, z: 15 });
+        io.to(target.id).emit('player:hp', { hp: target.hp, targetId: target.id });
+      }
+    }
+  });
+
+  socket.on('player:respawn', () => {
+    const p = players.get(socket.id);
+    if (!p) return;
+    p.hp = 10;
+    p.position = { x: 23, y: 1.48, z: 15 };
+    io.to(socket.id).emit('player:hp', { hp: p.hp, targetId: socket.id });
+  });
+
   socket.on('box:answer', (data) => {
     const box = gameBoxes.find(b => b.id === data.boxId);
     if (!box || box.type !== 'question' || box.answered) return;
@@ -415,6 +493,7 @@ io.on('connection', (socket) => {
       const pts = box.pts ?? PTS_BY_DIFF[box.difficulty ?? 1] ?? 10;
       p.score          += pts;
       p.correctAnswers += 1;
+      p.correctStreak = (p.correctStreak || 0) + 1;
       logAnswer(p.name || p.id.slice(0,6), box.question, answerGiven, true);
       console.log(`  [OK] #${data.boxId} dif${box.difficulty} por ${socket.id.slice(0,6)} (+${pts}pts)`);
 
@@ -431,6 +510,7 @@ io.on('connection', (socket) => {
 
       savePlayerScore(p);
       io.emit('box:answered', { boxId: data.boxId, playerId: socket.id, correct: true, scores: scoreBoard() });
+      io.to(socket.id).emit('player:streak', { streak: p.correctStreak || 0 });
 
       // Respawn caixa pregunta en nova posició tras 2 s
       setTimeout(() => {
@@ -459,6 +539,8 @@ io.on('connection', (socket) => {
     } else {
       p.score        += PTS_WRONG;
       p.wrongAnswers += 1;
+      p.correctStreak = 0;
+      io.to(socket.id).emit('player:teleport', { x: 23, y: 1.48, z: 15 });
       savePlayerScore(p);
       logAnswer(p.name || p.id.slice(0,6), box.question, answerGiven, false);
       console.log(`  [FAIL] #${data.boxId} por ${socket.id.slice(0,6)} (${PTS_WRONG}pts)`);
@@ -475,6 +557,7 @@ io.on('connection', (socket) => {
       io.emit('box:newquestion', { boxId: data.boxId, question: newQ.question, answers: newQ.answers, difficulty: newQ.difficulty ?? 1 });
       // Decir al jugador que falló + actualizar su puntuación
       socket.emit('box:answered', { boxId: data.boxId, playerId: socket.id, correct: false, correctAnswer, scores: scoreBoard() });
+      socket.emit('player:streak', { streak: p.correctStreak || 0 });
     }
   });
 
@@ -492,7 +575,7 @@ io.on('connection', (socket) => {
     sessionActive    = true;
     sessionStartTime = new Date();
     sessionLogLines  = [];
-    players.forEach(p => { p.score = 0; p.correctAnswers = 0; p.wrongAnswers = 0; p.bombCharges = 0; p.hasBomb = false; });
+    players.forEach(p => { p.score = 0; p.correctAnswers = 0; p.wrongAnswers = 0; p.bombCharges = 0; p.hasBomb = false; p.correctStreak = 0; });
     clearSavedScores();
     io.emit('admin:gamestart', { scores: scoreBoard() });
     const ts = fmtDate(sessionStartTime);

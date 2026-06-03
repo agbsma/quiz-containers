@@ -55,6 +55,8 @@ const bombaDots        = [document.getElementById('bdot0'), document.getElementB
 const msgEl            = document.getElementById('msg');
 const hintEl           = document.getElementById('hint');
 const errorBox         = document.getElementById('error');
+const lifeHud          = document.getElementById('lifeHud');
+const lifeBarFill      = document.getElementById('lifeBarFill');
 
 const bigFeedback      = document.getElementById('bigFeedback');
 const bigFeedbackTitle = document.getElementById('bigFeedbackTitle');
@@ -64,6 +66,15 @@ const dialogOverlay    = document.getElementById('dialogOverlay');
 const dialogQuestion   = document.getElementById('dialogQuestion');
 const dialogAnswers    = document.querySelectorAll('.ans-btn');
 const dialogFeedback   = document.getElementById('dialogFeedback');
+const dialogTimer      = document.getElementById('dialogTimer');
+const dialogTimerValue = document.getElementById('dialogTimerValue');
+const resultOverlay    = document.getElementById('resultOverlay');
+const resultTitle      = document.getElementById('resultTitle');
+const resultMessage    = document.getElementById('resultMessage');
+const resultCloseBtn   = document.getElementById('resultCloseBtn');
+const streakHud        = document.getElementById('streakHud');
+const streakDots       = [document.getElementById('sdot0'), document.getElementById('sdot1'), document.getElementById('sdot2'), document.getElementById('sdot3'), document.getElementById('sdot4')];
+const streakLabel      = document.getElementById('streakLabel');
 
 // ─── TEXTURAS DE CAIXA ───────────────────────────────────────────────────────
 
@@ -237,6 +248,11 @@ let frozenUntilMs = 0;
 let deathRecoverTimer = null;
 let localDeathUntilMs = 0;
 let deathLockedYaw = null;
+let questionCountdownTimer = null;
+let questionCountdownSeconds = 10;
+let currentQuestionStreak = 0;
+const MAX_LOWER_HP = 10;
+let lowerZoneHp = MAX_LOWER_HP;
 
 // ─── IL·LUMINACIÓ ────────────────────────────────────────────────────────────
 
@@ -357,6 +373,16 @@ function loadLevel() {
     });
     scene.add(lvl);
     worldOctree.fromGraphNode(lvl);
+    const lowerFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(220, 220),
+      new THREE.MeshStandardMaterial({ color: 0x122010, roughness: 1, metalness: 0 })
+    );
+    lowerFloor.rotation.x = -Math.PI / 2;
+    lowerFloor.position.y = -100;
+    lowerFloor.receiveShadow = true;
+    scene.add(lowerFloor);
+    collidableMeshes.push(lowerFloor);
+    worldOctree.fromGraphNode(scene);
     placePlayerAtCenter(lvl);
     onLevelReady();
   }, undefined, () => showError('No s\'ha pogut carregar /src/assets/level.glb'));
@@ -399,6 +425,7 @@ function startGame() {
   forcaHud.style.display = 'flex';
   bombaHud.style.display = 'flex';
   setBombaCharges(0);
+  setStreak(0);
   overlay.classList.add('visible');
   overlayTitle.textContent = `BENVINGUT, ${myName}!`;
   gameStarted = true;
@@ -673,6 +700,8 @@ function addOtherPlayer(id, color, position, rotation, name) {
   const y = position.y - CAM_HEIGHT;
   group.position.set(position.x, y, position.z);
   group.rotation.y = rotation||0;
+  group.userData.playerId = id;
+  group.traverse((n) => { if (n.isMesh) n.userData.playerId = id; });
   scene.add(group);
 
   // AnimationMixer si el model ja ha carregat
@@ -876,6 +905,7 @@ function createBoxMesh(data) {
   if (floorY === null) return;
   if (data.type === 'breakable') createBreakableBox(data, data.x, floorY, data.z);
   else if (data.type === 'question') createQuestionBox(data, data.x, floorY, data.z);
+  else if (data.type === 'golden') createGoldenBox(data, data.x, floorY, data.z);
 }
 
 function createBreakableBox(data, x, floorY, z) {
@@ -906,6 +936,41 @@ function createBreakableBox(data, x, floorY, z) {
     group.visible = false;
     boxColliders.delete(data.id);
   }
+}
+
+function createGoldenBox(data, x, floorY, z) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+
+  let visual = cloneChestTemplate(chestBaseModel);
+  if (!visual) {
+    visual = new THREE.Mesh(new THREE.BoxGeometry(2.0, 2.0, 2.0), new THREE.MeshStandardMaterial({ color: 0xffd54a, roughness: 0.65, emissive: 0xffcc33, emissiveIntensity: 0.15 }));
+    visual.position.set(0, floorY + 1.0, 0);
+  } else {
+    visual.scale.setScalar(1.7);
+    visual.traverse((n) => {
+      if (!n.isMesh) return;
+      const mats = Array.isArray(n.material) ? n.material : [n.material];
+      mats.forEach((mat, i) => {
+        const m = mat.clone();
+        m.color.set(0xffd54a);
+        m.emissive.set(0xffcc33);
+        m.emissiveIntensity = 0.18;
+        if (Array.isArray(n.material)) n.material[i] = m; else n.material = m;
+      });
+    });
+    group.add(visual);
+    placeObjectOnFloor(group, floorY);
+  }
+
+  if (!visual.parent) group.add(visual);
+  tagBoxObject(group, data.id, 'golden');
+  scene.add(group);
+
+  const collider = computeColliderFromObject(group);
+  boxMeshes.set(data.id, group);
+  boxData.set(data.id, { ...data, floorY, mesh: group, group, type: 'golden' });
+  if (collider) boxColliders.set(data.id, collider);
 }
 
 function createQuestionBox(data, x, floorY, z) {
@@ -1056,19 +1121,27 @@ function tryBreakBox() {
 
 function tryOpenQuestion() {
   if (!levelReady || dialogOpen || !gameStarted) return;
-  if (forca < 3) { showMsg(`Necessites 3 de força (tens ${forca})`, '#ff8844'); return; }
 
   const camPos = camera.position;
   let nearest = null, nearestDist = Infinity;
   boxData.forEach((d, id) => {
-    if (d.type!=='question' || d.answered) return;
+    if ((d.type !== 'question' && d.type !== 'golden') || (d.type === 'question' && d.answered)) return;
     const mesh = boxMeshes.get(id);
     if (!mesh) return;
     mesh.getWorldPosition(tmpVec);
     const dist = camPos.distanceTo(tmpVec);
     if (dist < INTERACT_DIST && dist < nearestDist) { nearest=id; nearestDist=dist; }
   });
-  if (nearest !== null) openDialog(nearest);
+  if (nearest === null) return;
+  const nearestEntry = boxData.get(nearest);
+  if (nearestEntry?.type === 'golden') {
+    if (currentQuestionStreak < 5) { showMsg('Necessites 5 encerts seguits per obrir aquest cofre daurat', '#ffdd44'); return; }
+    socket.emit('golden:open', { boxId: nearest });
+    showBigFeedback('Cofre daurat obert!', 'Caureu a la zona baixa amb més cofres.', '#ffd54a');
+    return;
+  }
+  if (forca < 3) { showMsg(`Necessites 3 de força (tens ${forca})`, '#ff8844'); return; }
+  openDialog(nearest);
 }
 
 function triggerQuestionGestureAndOpen() {
@@ -1095,6 +1168,16 @@ function onLeftClick() {
 
   socket.emit('player:emote', { anim: 'Punch' });
   playLocalEmote('Punch');
+
+  if (playerCollider.end.y < -50) {
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+    const hits = raycaster.intersectObjects(Array.from(otherPlayers.values()).map(p => p.group), true);
+    const hit = hits.find(h => h.object.userData?.playerId && h.object.userData.playerId !== myId);
+    if (hit) {
+      socket.emit('player:hit', { targetId: hit.object.userData.playerId });
+      return;
+    }
+  }
 
   if (forca < 3) tryBreakBox();
 }
@@ -1147,10 +1230,12 @@ function openDialog(boxId) {
   });
   dialogOverlay.classList.add('open');
   dialogOpen = true;
+  startQuestionTimer();
   document.exitPointerLock();
 }
 
 function closeDialog() {
+  stopQuestionTimer();
   if (activeQuestion !== null) {
     setQuestionChestGlow(activeQuestion, false);
     socket.emit('box:focus', { boxId: activeQuestion, open: false });
@@ -1162,6 +1247,7 @@ function closeDialog() {
 
 function submitAnswer(answerIndex) {
   if (activeQuestion === null) return;
+  stopQuestionTimer();
   dialogAnswers.forEach(b => b.disabled = true);
   socket.emit('box:answer', { boxId: activeQuestion, answerIndex });
 }
@@ -1172,6 +1258,7 @@ dialogAnswers.forEach((btn) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && dialogOpen) closeDialog();
 });
+resultCloseBtn.addEventListener('click', closeResultModal);
 
 // ─── HUD ─────────────────────────────────────────────────────────────────────
 
@@ -1183,6 +1270,59 @@ function showMsg(text, color='#ffffff') {
 function showHint(text) { hintEl.textContent = text; hintEl.classList.add('visible'); }
 function hideHint()     { hintEl.classList.remove('visible'); }
 function showError(msg) { errorBox.style.display='block'; errorBox.textContent=msg; }
+
+function updateLowerZoneHud(value) {
+  lowerZoneHp = Math.max(0, Math.min(MAX_LOWER_HP, value ?? MAX_LOWER_HP));
+  lifeHud.style.display = (playerCollider.end.y < -50) ? 'flex' : 'none';
+  lifeBarFill.style.width = `${(lowerZoneHp / MAX_LOWER_HP) * 100}%`;
+}
+
+function setStreak(value) {
+  currentQuestionStreak = Math.max(0, Math.min(5, value || 0));
+  streakDots.forEach((d, i) => d.classList.toggle('on', i < currentQuestionStreak));
+  streakLabel.textContent = `Ratxa ${currentQuestionStreak}/5`;
+  streakHud.style.display = currentQuestionStreak > 0 ? 'flex' : 'none';
+}
+
+function updateQuestionTimer(seconds) {
+  questionCountdownSeconds = Math.max(0, seconds);
+  const angle = Math.max(0, 360 * (questionCountdownSeconds / 10));
+  dialogTimer.style.background = `conic-gradient(#ffd54a ${angle}deg, rgba(255,255,255,0.08) 0deg)`;
+  dialogTimerValue.textContent = String(questionCountdownSeconds);
+}
+
+function startQuestionTimer() {
+  clearInterval(questionCountdownTimer);
+  questionCountdownSeconds = 10;
+  updateQuestionTimer(questionCountdownSeconds);
+  questionCountdownTimer = setInterval(() => {
+    questionCountdownSeconds -= 1;
+    updateQuestionTimer(questionCountdownSeconds);
+    if (questionCountdownSeconds <= 0) {
+      clearInterval(questionCountdownTimer);
+      questionCountdownTimer = null;
+      if (activeQuestion !== null) {
+        socket.emit('box:answer', { boxId: activeQuestion, answerIndex: -1 });
+        closeDialog();
+      }
+    }
+  }, 1000);
+}
+
+function stopQuestionTimer() {
+  clearInterval(questionCountdownTimer);
+  questionCountdownTimer = null;
+}
+
+function openResultModal(title, message) {
+  resultTitle.textContent = title;
+  resultMessage.textContent = message;
+  resultOverlay.classList.add('open');
+}
+
+function closeResultModal() {
+  resultOverlay.classList.remove('open');
+}
 
 let bigFeedbackTimer = null;
 function showBigFeedback(title, sub, color) {
@@ -1222,6 +1362,8 @@ socket.on('init', (data) => {
   if (levelReady) data.boxes.forEach(createBoxMesh);
   else pendingBoxes = data.boxes;
   updateScoreboard(data.scores);
+  setStreak(data.streak ?? 0);
+  updateLowerZoneHud(data.hp ?? MAX_LOWER_HP);
   // Re-envia el nom si ja el teníem (reconnexió o canvi de socket)
   if (myName) socket.emit('player:name', { name: myName });
 });
@@ -1237,6 +1379,24 @@ socket.on('player:name',   (d) => {
 });
 
 socket.on('score:update', (d) => updateScoreboard(d.scores));
+socket.on('player:streak', (d) => setStreak(d.streak ?? 0));
+socket.on('player:hp', (d) => {
+  updateLowerZoneHud(d.hp ?? MAX_LOWER_HP);
+  if (d.targetId === myId) showMsg(`Vida zona baixa: ${d.hp}/${MAX_LOWER_HP}`, '#ffef6b');
+});
+socket.on('player:teleport', (d) => {
+  const pos = new THREE.Vector3(d.x ?? FALLBACK_SPAWN.x, d.y ?? FALLBACK_SPAWN.y, d.z ?? FALLBACK_SPAWN.z);
+  setPlayerPosition(pos);
+  playerVel.set(0, 0, 0);
+  updateLowerZoneHud(d.y !== undefined && d.y < -50 ? MAX_LOWER_HP : MAX_LOWER_HP);
+  showBigFeedback('Zona baixa', 'Has caigut a la zona de cofres daurats.', '#ffd54a');
+});
+socket.on('game:lowerzone', (d) => {
+  if (!Array.isArray(d?.boxes)) return;
+  d.boxes.forEach((box) => {
+    if (!boxData.has(box.id)) createBoxMesh(box);
+  });
+});
 
 socket.on('score:restore', (d) => {
   myScore   = d.score   ?? 0;
@@ -1337,6 +1497,7 @@ socket.on('box:answered', (d) => {
       myScore = d.scores?.find(s => s.id === myId)?.score ?? myScore;
       const pts = entry?.pts ?? 10;
       closeDialog();
+      openResultModal('Correcte!', `Has aconseguit +${pts} punts. Aprèn-la per quan torni a aparèixer.`);
       showBigFeedback('Correcte!', `Has aconseguit +${pts} punts`, '#44ff88');
 
       for (let i = 0; i < 3; i++) {
@@ -1360,6 +1521,7 @@ socket.on('box:answered', (d) => {
       const correctAnswer = d.correctAnswer || '';
       setTimeout(() => {
         closeDialog();
+        openResultModal('Error!', `La resposta correcta era: "${correctAnswer}". Aprèn-la per quan torni a aparèixer.`);
         applyDeathEffect('Error!', `La resposta correcta era: "${correctAnswer}"`);
       }, 400);
 
@@ -1440,7 +1602,14 @@ function updateMovement(dt) {
   playerCollider.translate(playerVel.clone().multiplyScalar(dt));
   playerCollisions();
   resolveBoxCollisions();
-  if (playerCollider.end.y < -40) { setPlayerPosition(FALLBACK_SPAWN.clone()); playerVel.set(0,0,0); }
+  const fellOffLowerZone = playerCollider.end.y < -90 ||
+    (playerCollider.end.y < -40 && (playerCollider.end.x < -10 || playerCollider.end.x > 95 || playerCollider.end.z < -45 || playerCollider.end.z > 75));
+  if (fellOffLowerZone) {
+    setPlayerPosition(FALLBACK_SPAWN.clone());
+    playerVel.set(0,0,0);
+    socket.emit('player:respawn', { reason: 'fall' });
+    updateLowerZoneHud(MAX_LOWER_HP);
+  }
   camera.position.copy(playerCollider.end);
 }
 

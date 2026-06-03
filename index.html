@@ -169,6 +169,24 @@
         text-transform: uppercase; letter-spacing: 1px; text-shadow: 1px 1px 2px #000;
       }
 
+      /* ── HUD vida baixa ───────────────────────────────────── */
+      #lifeHud {
+        position: fixed; left: 14px; bottom: 18px;
+        display: none; flex-direction: column; gap: 6px;
+        z-index: 6; pointer-events: none;
+        background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.15);
+        border-radius: 8px; padding: 8px 10px; min-width: 180px;
+      }
+      #lifeBarTrack {
+        width: 100%; height: 10px; border-radius: 999px; overflow: hidden;
+        background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18);
+      }
+      #lifeBarFill {
+        height: 100%; width: 100%; background: linear-gradient(90deg, #53ff6d, #ffef6b, #ff6666);
+        box-shadow: 0 0 10px rgba(83,255,109,0.35);
+      }
+      #lifeLabel { font-size: 11px; color: rgba(255,255,255,0.8); text-transform: uppercase; letter-spacing: 1px; }
+
       /* ── HUD bomba ───────────────────────────────────────────── */
       #bombaHud {
         position: fixed; bottom: 22px; left: calc(50% + 80px);
@@ -228,6 +246,24 @@
       }
       #hint.visible { opacity: 1; }
 
+      /* ── HUD ratxa ─────────────────────────────────────────── */
+      #streakHud {
+        position: fixed; bottom: 22px; right: 22px;
+        display: none; flex-direction: column; align-items: flex-end; gap: 5px;
+        z-index: 5; pointer-events: none;
+      }
+      #streakDots { display: flex; gap: 6px; }
+      .sdot {
+        width: 14px; height: 14px; border-radius: 50%;
+        border: 2px solid rgba(255, 221, 68, 0.55); background: transparent;
+        transition: background .15s, border-color .15s, box-shadow .15s;
+      }
+      .sdot.on { background: #ffdd44; border-color: #ffe97a; box-shadow: 0 0 8px #ffdd44; }
+      #streakLabel {
+        font-size: 11px; color: rgba(255,255,255,0.7);
+        text-transform: uppercase; letter-spacing: 1px; text-shadow: 1px 1px 2px #000;
+      }
+
       /* ── Modal pregunta ──────────────────────────────────────── */
       #dialogOverlay {
         position: fixed; inset: 0;
@@ -255,8 +291,11 @@
         column-gap: 16px;
         row-gap: 10px;
       }
-      #dialog h3 {
+      #dialogTimerWrap {
         grid-area: title;
+        display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+      }
+      #dialog h3 {
         margin: 0 0 2px;
         color: #d6e6cb;
         font-size: 13px;
@@ -314,6 +353,19 @@
       }
       .ans-btn.correct { background: #2d5d37; border-color: #7ff07a; color: #eaffea; }
       .ans-btn.wrong   { background: #603434; border-color: #ff7777; color: #ffe9e9; }
+      #dialogTimer {
+        width: 56px; height: 56px; border-radius: 50%;
+        display: grid; place-items: center; flex-shrink: 0;
+        background: conic-gradient(#ffd54a 0deg, rgba(255,255,255,0.08) 0deg);
+        box-shadow: inset 0 0 0 2px rgba(255,255,255,0.15), 0 0 10px rgba(0,0,0,0.35);
+        position: relative;
+      }
+      #dialogTimer::after {
+        content: ''; position: absolute; inset: 6px; border-radius: 50%; background: #17231c; border: 1px solid rgba(255,255,255,0.12);
+      }
+      #dialogTimerValue {
+        position: relative; z-index: 1; font-size: 15px; font-weight: 700; color: #fff8bf;
+      }
       #dialogFeedback {
         grid-area: feedback;
         text-align: left;
@@ -336,6 +388,24 @@
         }
         #dialogQuestion { min-height: 120px; }
         .ans-btn { font-size: 22px; }
+      }
+
+      /* ── Modal resultat ────────────────────────────────────── */
+      #resultOverlay {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.72); display: none; align-items: center; justify-content: center; z-index: 30;
+      }
+      #resultOverlay.open { display: flex; }
+      #resultBox {
+        background: linear-gradient(180deg, #2f3d31 0%, #1f2a21 100%);
+        border: 4px solid #ced9be; border-radius: 12px; box-shadow: 0 0 0 4px #0f1511, 0 16px 32px rgba(0,0,0,0.45);
+        width: min(92vw, 520px); padding: 18px; color: #f1f6e9; text-align: center;
+      }
+      #resultTitle { font-size: 32px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+      #resultMessage { font-size: 16px; line-height: 1.35; color: #edf4e7; margin-bottom: 14px; }
+      #resultHint { font-size: 13px; color: #fff3b2; margin-bottom: 14px; }
+      #resultCloseBtn {
+        border: 3px solid #dbe6cd; border-radius: 10px; background: #22322a; color: #eef6e4; cursor: pointer;
+        font-family: 'Courier New', monospace; font-weight: 700; text-transform: uppercase; padding: 10px 14px;
       }
 
       /* ── Errors ──────────────────────────────────────────────── */
@@ -443,6 +513,12 @@
       <div id="forcaLabel">Força</div>
     </div>
 
+    <!-- Vida de la zona baixa -->
+    <div id="lifeHud">
+      <div id="lifeLabel">Vida zona baixa</div>
+      <div id="lifeBarTrack"><div id="lifeBarFill"></div></div>
+    </div>
+
     <!-- Bomba -->
     <div id="bombaHud">
       <div id="bombaDots">
@@ -457,6 +533,18 @@
     <div id="msg"></div>
     <div id="hint"></div>
 
+    <!-- Ratxa -->
+    <div id="streakHud">
+      <div id="streakDots">
+        <div class="sdot" id="sdot0"></div>
+        <div class="sdot" id="sdot1"></div>
+        <div class="sdot" id="sdot2"></div>
+        <div class="sdot" id="sdot3"></div>
+        <div class="sdot" id="sdot4"></div>
+      </div>
+      <div id="streakLabel">Ratxa 0/5</div>
+    </div>
+
     <!-- Missatge gran (resultat pregunta) -->
     <div id="bigFeedback">
       <div id="bigFeedbackTitle"></div>
@@ -466,7 +554,10 @@
     <!-- Modal pregunta -->
     <div id="dialogOverlay">
       <div id="dialog">
-        <h3>Caixa de pregunta</h3>
+        <div id="dialogTimerWrap">
+          <h3>Caixa de pregunta</h3>
+          <div id="dialogTimer" aria-label="Compte enrere"><span id="dialogTimerValue">10</span></div>
+        </div>
         <div id="dialogQuestion"></div>
         <div id="dialogAnswers">
           <button class="ans-btn" data-idx="0"></button>
@@ -475,6 +566,15 @@
           <button class="ans-btn" data-idx="3"></button>
         </div>
         <div id="dialogFeedback"></div>
+      </div>
+    </div>
+
+    <div id="resultOverlay">
+      <div id="resultBox">
+        <div id="resultTitle">Resultat</div>
+        <div id="resultMessage"></div>
+        <div id="resultHint">Aprèn-la per quan torni a aparèixer.</div>
+        <button id="resultCloseBtn" type="button">Tancar</button>
       </div>
     </div>
 
