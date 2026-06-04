@@ -412,9 +412,10 @@ io.on('connection', (socket) => {
     io.emit('box:break', { boxId: data.boxId });
     console.log(`  [rota] #${data.boxId} por ${socket.id.slice(0,6)}`);
 
-    // Respawn caixa verda tras 5 s
+    // Respawn caixa verda tras 5 s (a la mateixa zona)
+    const boxBounds = box.lowerZone ? LOWER_BOUNDS : BOUNDS;
     setTimeout(() => {
-      const pos = randPos(gameBoxes.filter(b => b.id !== data.boxId), 3);
+      const pos = randPos(gameBoxes.filter(b => b.id !== data.boxId), 3, boxBounds);
       box.x      = pos.x;
       box.z      = pos.z;
       box.broken = false;
@@ -422,13 +423,13 @@ io.on('connection', (socket) => {
       console.log(`  [respawn] #${data.boxId} → (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`);
     }, RESPAWN_DELAY_BREAK_MS);
 
-    // Si queden < 25 caixes verdes actives, respawn extra d'una altra caixa trencada
-    const activeBreakable = gameBoxes.filter(b => b.type === 'breakable' && !b.broken).length;
+    // Si queden < 25 caixes verdes actives a la zona alta, respawn extra
+    const activeBreakable = gameBoxes.filter(b => b.type === 'breakable' && !b.broken && !b.lowerZone).length;
     if (activeBreakable < 25) {
-      const extraBroken = gameBoxes.find(b => b.type === 'breakable' && b.broken && b.id !== data.boxId);
+      const extraBroken = gameBoxes.find(b => b.type === 'breakable' && b.broken && !b.lowerZone && b.id !== data.boxId);
       if (extraBroken) {
         setTimeout(() => {
-          const pos2 = randPos(gameBoxes.filter(b => b.id !== extraBroken.id), 3);
+          const pos2 = randPos(gameBoxes.filter(b => b.id !== extraBroken.id), 3, BOUNDS);
           extraBroken.x      = pos2.x;
           extraBroken.z      = pos2.z;
           extraBroken.broken = false;
@@ -512,9 +513,9 @@ io.on('connection', (socket) => {
       io.emit('box:answered', { boxId: data.boxId, playerId: socket.id, correct: true, scores: scoreBoard() });
       io.to(socket.id).emit('player:streak', { streak: p.correctStreak || 0 });
 
-      // Respawn caixa pregunta en nova posició tras 2 s
+      // Respawn caixa pregunta en nova posició tras 2 s (a la mateixa zona)
       setTimeout(() => {
-        const pos  = randPos(gameBoxes.filter(b => b.id !== data.boxId), 5);
+        const pos  = randPos(gameBoxes.filter(b => b.id !== data.boxId), 5, box.lowerZone ? LOWER_BOUNDS : BOUNDS);
         const newQ = pickQuestion(questionPool);
         box.x          = pos.x;
         box.z          = pos.z;
@@ -540,7 +541,7 @@ io.on('connection', (socket) => {
       p.score        += PTS_WRONG;
       p.wrongAnswers += 1;
       p.correctStreak = 0;
-      io.to(socket.id).emit('player:teleport', { x: 23, y: 1.48, z: 15 });
+      io.to(socket.id).emit('player:freeze', { ms: 10000 });
       savePlayerScore(p);
       logAnswer(p.name || p.id.slice(0,6), box.question, answerGiven, false);
       console.log(`  [FAIL] #${data.boxId} por ${socket.id.slice(0,6)} (${PTS_WRONG}pts)`);
@@ -627,6 +628,22 @@ io.on('connection', (socket) => {
     io.emit('admin:message', { text: msg, color: '#44ddff' });
   });
 
+  // Ctrl+Alt+Shift+K → Kick jugador per nom
+  socket.on('admin:kick', (data) => {
+    const name = (data?.name || '').trim().toLowerCase();
+    if (!name) return;
+    let kicked = false;
+    players.forEach((p, sid) => {
+      if ((p.name || '').toLowerCase() === name) {
+        console.log(`  [ADMIN] kick de ${p.name} (${sid.slice(0,6)})`);
+        io.to(sid).emit('admin:kicked');
+        setTimeout(() => { const s = io.sockets.sockets.get(sid); if (s) s.disconnect(true); }, 1500);
+        kicked = true;
+      }
+    });
+    if (!kicked) socket.emit('admin:message', { text: `Jugador "${data.name}" no trobat`, color: '#ff8844' });
+  });
+
   // Ctrl+Alt+Shift+, → Hard reset: tots els clients recarreguen i es reinicia l'estat
   socket.on('admin:hardreset', async () => {
     console.log(`  [ADMIN] HARD RESET per ${socket.id.slice(0,6)}`);
@@ -666,8 +683,8 @@ io.on('connection', (socket) => {
     focusedQuestionByPlayer.delete(targetId);
     io.to(targetId).emit('bomb:hit', { scores: scoreBoard() });
 
-    // Respawn cofre a nova posició
-    const pos  = randPos(gameBoxes.filter(b => b.id !== box.id), 5);
+    // Respawn cofre a nova posició (a la mateixa zona)
+    const pos  = randPos(gameBoxes.filter(b => b.id !== box.id), 5, box.lowerZone ? LOWER_BOUNDS : BOUNDS);
     const newQ = pickQuestion(questionPool);
     box.x = pos.x; box.z = pos.z;
     box.question = newQ.question; box.answers = newQ.answers;

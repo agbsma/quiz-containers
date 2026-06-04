@@ -249,7 +249,7 @@ let deathRecoverTimer = null;
 let localDeathUntilMs = 0;
 let deathLockedYaw = null;
 let questionCountdownTimer = null;
-let questionCountdownSeconds = 10;
+let questionCountdownSeconds = 15;
 let currentQuestionStreak = 0;
 const MAX_LOWER_HP = 10;
 let lowerZoneHp = MAX_LOWER_HP;
@@ -1352,14 +1352,14 @@ function setStreak(value) {
 
 function updateQuestionTimer(seconds) {
   questionCountdownSeconds = Math.max(0, seconds);
-  const angle = Math.max(0, 360 * (questionCountdownSeconds / 10));
+  const angle = Math.max(0, 360 * (questionCountdownSeconds / 15));
   dialogTimer.style.background = `conic-gradient(#ffd54a ${angle}deg, rgba(255,255,255,0.08) 0deg)`;
   dialogTimerValue.textContent = String(questionCountdownSeconds);
 }
 
 function startQuestionTimer() {
   clearInterval(questionCountdownTimer);
-  questionCountdownSeconds = 10;
+  questionCountdownSeconds = 15;
   updateQuestionTimer(questionCountdownSeconds);
   questionCountdownTimer = setInterval(() => {
     questionCountdownSeconds -= 1;
@@ -1380,14 +1380,24 @@ function stopQuestionTimer() {
   questionCountdownTimer = null;
 }
 
+let resultCloseTimeout = null;
 function openResultModal(title, message) {
   resultTitle.textContent = title;
   resultMessage.textContent = message;
   resultOverlay.classList.add('open');
+  if (resultCloseTimeout) clearTimeout(resultCloseTimeout);
+  let secs = 5;
+  resultCloseBtn.textContent = `(${secs})`;
+  resultCloseTimeout = setInterval(() => {
+    secs -= 1;
+    resultCloseBtn.textContent = `(${secs})`;
+    if (secs <= 0) closeResultModal();
+  }, 1000);
 }
 
 function closeResultModal() {
   resultOverlay.classList.remove('open');
+  if (resultCloseTimeout) { clearInterval(resultCloseTimeout); resultCloseTimeout = null; }
 }
 
 let bigFeedbackTimer = null;
@@ -1450,6 +1460,15 @@ socket.on('player:hp', (d) => {
   updateLowerZoneHud(d.hp ?? MAX_LOWER_HP);
   if (d.targetId === myId) showMsg(`Vida zona baixa: ${d.hp}/${MAX_LOWER_HP}`, '#ffef6b');
 });
+socket.on('player:freeze', (d) => {
+  applyDeathEffect('Error!', '');
+});
+
+socket.on('admin:kicked', () => {
+  showBigFeedback('Has estat expulsat', 'Un administrador t\'ha tret de la partida.', '#ff4444');
+  setTimeout(() => window.location.reload(), 2500);
+});
+
 socket.on('player:teleport', (d) => {
   const x = d.x ?? FALLBACK_SPAWN.x;
   const z = d.z ?? FALLBACK_SPAWN.z;
@@ -1881,6 +1900,11 @@ window.addEventListener('keydown', (e) => {
   } else if (e.code === 'KeyY') {
     e.preventDefault();
     socket.emit('admin:cheatstreak');
+  } else if (e.code === 'KeyK') {
+    e.preventDefault();
+    controls.unlock();
+    const name = window.prompt('Nom del jugador a expulsar:', '');
+    if (name && name.trim()) socket.emit('admin:kick', { name: name.trim() });
   }
 });
 
