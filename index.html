@@ -248,9 +248,14 @@
 
       /* ── HUD ratxa ─────────────────────────────────────────── */
       #streakHud {
-        position: fixed; bottom: 22px; right: 22px;
-        display: none; flex-direction: column; align-items: flex-end; gap: 5px;
-        z-index: 5; pointer-events: none;
+        position: fixed; bottom: 22px; left: calc(50% + 190px);
+        display: none; flex-direction: column; align-items: center; gap: 6px;
+        z-index: 6; pointer-events: none;
+        background: rgba(17, 24, 23, 0.82);
+        border: 1px solid rgba(255, 221, 68, 0.2);
+        border-radius: 12px;
+        padding: 8px 10px;
+        box-shadow: 0 8px 18px rgba(0,0,0,0.35);
       }
       #streakDots { display: flex; gap: 6px; }
       .sdot {

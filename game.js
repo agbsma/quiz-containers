@@ -380,8 +380,10 @@ function loadLevel() {
     lowerFloor.rotation.x = -Math.PI / 2;
     lowerFloor.position.y = -100;
     lowerFloor.receiveShadow = true;
+    lowerFloor.userData.isLowerZoneFloor = true;
     scene.add(lowerFloor);
     collidableMeshes.push(lowerFloor);
+    lowerFloor.updateMatrixWorld(true);
     worldOctree.fromGraphNode(scene);
     placePlayerAtCenter(lvl);
     onLevelReady();
@@ -760,6 +762,24 @@ function findFloorY(x, z) {
   return hits[0].point.y <= VALID_FLOOR_Y ? hits[0].point.y : null;
 }
 
+function findLowerFloorY(x, z) {
+  raycaster.set(new THREE.Vector3(x, 200, z), new THREE.Vector3(0,-1,0));
+  const hits = raycaster.intersectObjects(collidableMeshes, true);
+  if (!hits.length) return -100;
+  const lower = hits.filter((h) => h.point.y < -40).sort((a, b) => a.point.y - b.point.y);
+  return lower.length ? lower[0].point.y : hits[0].point.y;
+}
+
+function findSpawnSurfaceY(x, z, preferLower) {
+  raycaster.set(new THREE.Vector3(x, 200, z), new THREE.Vector3(0,-1,0));
+  const hits = raycaster.intersectObjects(collidableMeshes, true);
+  if (!hits.length) return null;
+  const candidate = preferLower
+    ? hits.find((hit) => hit.point.y < -40) || hits[0]
+    : hits.find((hit) => hit.point.y <= VALID_FLOOR_Y) || hits[0];
+  return candidate.point.y + CAM_HEIGHT + 0.08;
+}
+
 function placePendingBoxes() {
   if (!pendingBoxes || !levelReady) return;
   if (!chestBaseModel || !chestSpecialModel) return;
@@ -891,6 +911,8 @@ function removeBoxFromScene(boxId) {
   if (d.mesh)  scene.remove(d.mesh);
   if (d.group) scene.remove(d.group);
   if (d.light) scene.remove(d.light);
+  if (d.glowLight) scene.remove(d.glowLight);
+  if (d.glowHalo) d.group?.remove(d.glowHalo);
   if (d.questionGlowLight) scene.remove(d.questionGlowLight);
   if (d.questionGlowHalo) d.group?.remove(d.questionGlowHalo);
   boxMeshes.delete(boxId);
@@ -901,7 +923,7 @@ function removeBoxFromScene(boxId) {
 // ─── CAIXES — CREACIÓ ────────────────────────────────────────────────────────
 
 function createBoxMesh(data) {
-  const floorY = findFloorY(data.x, data.z);
+  const floorY = data.lowerZone ? findLowerFloorY(data.x, data.z) : findFloorY(data.x, data.z);
   if (floorY === null) return;
   if (data.type === 'breakable') createBreakableBox(data, data.x, floorY, data.z);
   else if (data.type === 'question') createQuestionBox(data, data.x, floorY, data.z);
@@ -942,6 +964,25 @@ function createGoldenBox(data, x, floorY, z) {
   const group = new THREE.Group();
   group.position.set(x, 0, z);
 
+  const glowLight = new THREE.PointLight(0xffd54a, 2.8, 9, 2);
+  glowLight.position.set(0, 1.35, 0);
+  group.add(glowLight);
+
+  const glowHalo = new THREE.Mesh(
+    new THREE.SphereGeometry(1.8, 24, 16),
+    new THREE.MeshBasicMaterial({
+      color: 0xffd54a,
+      transparent: true,
+      opacity: 0.18,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  glowHalo.position.set(0, 1.15, 0);
+  glowHalo.renderOrder = 20;
+  group.add(glowHalo);
+
   let visual = cloneChestTemplate(chestBaseModel);
   if (!visual) {
     visual = new THREE.Mesh(new THREE.BoxGeometry(2.0, 2.0, 2.0), new THREE.MeshStandardMaterial({ color: 0xffd54a, roughness: 0.65, emissive: 0xffcc33, emissiveIntensity: 0.15 }));
@@ -969,7 +1010,15 @@ function createGoldenBox(data, x, floorY, z) {
 
   const collider = computeColliderFromObject(group);
   boxMeshes.set(data.id, group);
-  boxData.set(data.id, { ...data, floorY, mesh: group, group, type: 'golden' });
+  boxData.set(data.id, {
+    ...data,
+    floorY,
+    mesh: group,
+    group,
+    type: 'golden',
+    glowLight,
+    glowHalo,
+  });
   if (collider) boxColliders.set(data.id, collider);
 }
 
@@ -1040,11 +1089,20 @@ function spawnWoodParticles(pos) {
     emissive: 0x4A8A37,
     emissiveIntensity: 0.35,
   });
-  for (let i=0;i<10;i++) {
-    const p = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.14,0.14), mat);
-    p.position.copy(pos).add(new THREE.Vector3(0,0.5,0));
+  for (let i=0;i<18;i++) {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.12,0.12), mat);
+    p.position.copy(pos).add(new THREE.Vector3(0,0.35,0));
     scene.add(p);
-    particles.push({ mesh:p, vx:(Math.random()-.5)*9, vy:Math.random()*6+2, vz:(Math.random()-.5)*9 });
+    const speed = 5 + Math.random() * 7;
+    const angle = Math.random() * Math.PI * 2;
+    const lift = 3 + Math.random() * 4;
+    particles.push({
+      mesh:p,
+      vx: Math.cos(angle) * speed,
+      vy: lift,
+      vz: Math.sin(angle) * speed,
+      life: 0.35 + Math.random() * 0.35,
+    });
   }
 }
 
@@ -1058,12 +1116,20 @@ function breakBoxVisual(boxId) {
   mesh.getWorldPosition(hitPos);
   spawnWoodParticles(hitPos);
   boxColliders.delete(boxId);
+
   let scale = 1;
   const iv = setInterval(() => {
-    scale -= 0.14;
-    if (scale <= 0) { clearInterval(iv); mesh.visible=false; scene.remove(mesh); boxMeshes.delete(boxId); return; }
+    scale -= 0.18;
+    if (scale <= 0) {
+      clearInterval(iv);
+      mesh.visible = false;
+      scene.remove(mesh);
+      boxMeshes.delete(boxId);
+      return;
+    }
     mesh.scale.setScalar(scale);
-    mesh.position.y += 0.04;
+    mesh.position.y += 0.05;
+    mesh.rotation.y += 0.18;
   }, 16);
 }
 
@@ -1385,11 +1451,25 @@ socket.on('player:hp', (d) => {
   if (d.targetId === myId) showMsg(`Vida zona baixa: ${d.hp}/${MAX_LOWER_HP}`, '#ffef6b');
 });
 socket.on('player:teleport', (d) => {
-  const pos = new THREE.Vector3(d.x ?? FALLBACK_SPAWN.x, d.y ?? FALLBACK_SPAWN.y, d.z ?? FALLBACK_SPAWN.z);
+  const x = d.x ?? FALLBACK_SPAWN.x;
+  const z = d.z ?? FALLBACK_SPAWN.z;
+
+  if (d.fall) {
+    const fallY = d.y ?? -8.5;
+    setPlayerPosition(new THREE.Vector3(x, fallY, z));
+    playerVel.set(0, -18, 0);
+    updateLowerZoneHud(MAX_LOWER_HP);
+    showBigFeedback('Zona baixa', 'Caureu a la zona de cofres daurats.', '#ffd54a');
+    return;
+  }
+
+  const preferLower = (d.y ?? FALLBACK_SPAWN.y) < -40;
+  const floorY = findSpawnSurfaceY(x, z, preferLower);
+  const pos = new THREE.Vector3(x, floorY ?? (d.y ?? FALLBACK_SPAWN.y), z);
   setPlayerPosition(pos);
   playerVel.set(0, 0, 0);
-  updateLowerZoneHud(d.y !== undefined && d.y < -50 ? MAX_LOWER_HP : MAX_LOWER_HP);
-  showBigFeedback('Zona baixa', 'Has caigut a la zona de cofres daurats.', '#ffd54a');
+  updateLowerZoneHud(MAX_LOWER_HP);
+  if (preferLower) showBigFeedback('Zona baixa', 'Has caigut a la zona de cofres daurats.', '#ffd54a');
 });
 socket.on('game:lowerzone', (d) => {
   if (!Array.isArray(d?.boxes)) return;
@@ -1571,12 +1651,19 @@ function getRight()   { camera.getWorldDirection(rightVec); rightVec.y=0; rightV
 
 function playerCollisions() {
   playerOnFloor = false;
-  for (let i = 0; i < 5; i++) {   // múltiples iteracions per resoldre cantonades
+  for (let i = 0; i < 5; i++) {
     const r = worldOctree.capsuleIntersect(playerCollider);
     if (!r) break;
     if (r.normal.y > 0) playerOnFloor = true;
     if (!playerOnFloor) playerVel.addScaledVector(r.normal, -r.normal.dot(playerVel));
     playerCollider.translate(r.normal.multiplyScalar(r.depth + 0.001));
+  }
+
+  if (playerCollider.end.y <= -99.5 && playerCollider.end.y >= -101.5) {
+    playerOnFloor = true;
+    playerVel.y = Math.max(playerVel.y, 0);
+    playerCollider.end.y = -99.5;
+    playerCollider.start.y = -99.5 + CAM_HEIGHT - 0.35;
   }
 }
 
@@ -1602,9 +1689,9 @@ function updateMovement(dt) {
   playerCollider.translate(playerVel.clone().multiplyScalar(dt));
   playerCollisions();
   resolveBoxCollisions();
-  const fellOffLowerZone = playerCollider.end.y < -90 ||
-    (playerCollider.end.y < -40 && (playerCollider.end.x < -10 || playerCollider.end.x > 95 || playerCollider.end.z < -45 || playerCollider.end.z > 75));
-  if (fellOffLowerZone) {
+  const fellOutOfBounds = playerCollider.end.y < -120 ||
+    (playerCollider.end.x < -40 || playerCollider.end.x > 110 || playerCollider.end.z < -70 || playerCollider.end.z > 100);
+  if (fellOutOfBounds) {
     setPlayerPosition(FALLBACK_SPAWN.clone());
     playerVel.set(0,0,0);
     socket.emit('player:respawn', { reason: 'fall' });
@@ -1793,9 +1880,7 @@ window.addEventListener('keydown', (e) => {
     if (msg && msg.trim()) socket.emit('admin:broadcast', { text: msg.trim() });
   } else if (e.code === 'KeyY') {
     e.preventDefault();
-    if (window.confirm('⚠️ HARD RESET: esborra tots els jugadors i reinicia el joc?')) {
-      socket.emit('admin:hardreset');
-    }
+    socket.emit('admin:cheatstreak');
   }
 });
 

@@ -446,7 +446,7 @@ io.on('connection', (socket) => {
     const box = gameBoxes.find(b => b.id === Number(data?.boxId) && b.type === 'golden');
     if (!box) return;
     const extra = ensureLowerZoneBoxes();
-    io.to(socket.id).emit('player:teleport', { x: 23, y: -98, z: 15 });
+    io.to(socket.id).emit('player:teleport', { x: 23, y: -8.5, z: 15, fall: true });
     io.emit('score:update', { scores: scoreBoard() });
     console.log(`  [GOLDEN] ${socket.id.slice(0,6)} ha obert un cofre daurat → zona baixa (${extra.length} cofres)`);
   });
@@ -604,6 +604,19 @@ io.on('connection', (socket) => {
     sessionLogLines.push(`Guanyador: ${winnerName} (${winnerScore} punts)`);
     writeSessionLog();
     writeResultsLog(winnerName, winnerScore);
+  });
+
+  // Ctrl+Alt+Shift+Y → Truc secret: ratxa de 5 encerts seguits
+  socket.on('admin:cheatstreak', () => {
+    const p = players.get(socket.id);
+    if (!p) return;
+    p.correctStreak = 5;
+    p.correctAnswers = Math.max(p.correctAnswers || 0, 5);
+    savePlayerScore(p);
+    io.to(socket.id).emit('player:streak', { streak: p.correctStreak });
+    io.to(socket.id).emit('admin:message', { text: 'Ratxa activada: 5 encerts seguits. Ja pots obrir el cofre daurat.', color: '#ffd54a' });
+    io.to(socket.id).emit('score:update', { scores: scoreBoard() });
+    console.log(`  [CHEAT] ${socket.id.slice(0,6)} → ratxa ${p.correctStreak}`);
   });
 
   // Ctrl+Alt+Shift+U → Missatge personalitzat
